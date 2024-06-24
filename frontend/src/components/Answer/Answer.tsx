@@ -1,10 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
-import { FontIcon, Stack, Text } from '@fluentui/react'
+import { useContext, useEffect, useMemo, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { nord } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { FontIcon, Stack, Text } from '@fluentui/react'
 import { useBoolean } from '@fluentui/react-hooks'
+import DOMPurify from 'dompurify'
+import remarkGfm from 'remark-gfm'
+import supersub from 'remark-supersub'
 import { AskResponse, Citation } from '../../api'
+import { XSSAllowTags, XSSAllowAttributes } from '../../constants/sanatizeAllowables'
+import { AppStateContext } from '../../state/AppProvider'
+
 import { parseAnswer } from './AnswerParser'
+
 import styles from './Answer.module.css'
 
 interface Props {
@@ -20,6 +28,8 @@ export const Answer = ({ answer, onCitationClicked, onIntentClicked }: Props) =>
 
     const parsedAnswer = useMemo(() => parseAnswer(answer), [answer])
     const [chevronIsExpanded, setChevronIsExpanded] = useState(isRefAccordionOpen)
+    const appStateContext = useContext(AppStateContext)
+    const SANITIZE_ANSWER = appStateContext?.state.frontendSettings?.sanitize_answer
 
     const handleChevronClick = () => {
         setChevronIsExpanded(!chevronIsExpanded)
@@ -68,6 +78,23 @@ export const Answer = ({ answer, onCitationClicked, onIntentClicked }: Props) =>
     return (
         <>
             <Stack className={styles.answerContainer} tabIndex={0}>
+                <Stack.Item>
+                    <Stack horizontal grow>
+                        <Stack.Item grow>
+                            <ReactMarkdown
+                                linkTarget="_blank"
+                                remarkPlugins={[remarkGfm, supersub]}
+                                children={
+                                    SANITIZE_ANSWER
+                                        ? DOMPurify.sanitize(parsedAnswer.markdownFormatText, { ALLOWED_TAGS: XSSAllowTags, ALLOWED_ATTR: XSSAllowAttributes })
+                                        : parsedAnswer.markdownFormatText
+                                }
+                                className={styles.answerText}
+                                components={components}
+                            />
+                        </Stack.Item>
+                    </Stack>
+                </Stack.Item>
                 <Stack horizontal className={styles.answerFooter}>
                     {!!parsedAnswer.citations.length && (
                         <Stack.Item onKeyDown={e => (e.key === 'Enter' || e.key === ' ' ? toggleIsRefAccordionOpen() : null)}>

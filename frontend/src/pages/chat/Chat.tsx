@@ -675,8 +675,8 @@ const Chat = () => {
     setIsCitationPanelOpen(true)
   }
 
-    const onShowIntent = (i: string[]) => {
-        setIntents(i)
+  const onShowIntent = (i: string[]) => {
+    setIntents(i)
     setIsIntentsPanelOpen(true)
   }
 
@@ -962,7 +962,7 @@ const Chat = () => {
                 />
               </Stack>
               <Stack horizontalAlign="space-between">
-                {intents.map((intent) => {
+                  {intents.map((intent) => {
                   return (
                     <Stack className={styles.exectResultList} verticalAlign="space-between">
                       <><span>Intent:</span> <p>{intent}</p></>
