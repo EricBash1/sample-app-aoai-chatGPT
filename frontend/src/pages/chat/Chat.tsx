@@ -8,8 +8,6 @@ import rehypeRaw from 'rehype-raw'
 import uuid from 'react-uuid'
 import { isEmpty } from 'lodash'
 import DOMPurify from 'dompurify'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { nord } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 import styles from './Chat.module.css'
 import Contoso from '../../assets/Contoso.svg'
@@ -21,7 +19,6 @@ import {
   conversationApi,
   Citation,
   ToolMessageContent,
-  AzureSqlServerExecResults,
   ChatResponse,
   getUserInfo,
   Conversation,
@@ -31,7 +28,6 @@ import {
   ChatHistoryLoadingState,
   CosmosDBStatus,
   ErrorMessage,
-  ExecResults,
 } from "../../api";
 import { Answer } from "../../components/Answer";
 import { QuestionInput } from "../../components/QuestionInput";
@@ -57,8 +53,9 @@ const Chat = () => {
   const [isIntentsPanelOpen, setIsIntentsPanelOpen] = useState<boolean>(false)
   const abortFuncs = useRef([] as AbortController[])
   const [showAuthMessage, setShowAuthMessage] = useState<boolean | undefined>()
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [execResults, setExecResults] = useState<ExecResults[]>([])
+    const [messages, setMessages] = useState<ChatMessage[]>([])
+    const [intents, setIntents] = useState<string[]>([])
+
   const [processMessages, setProcessMessages] = useState<messageStatus>(messageStatus.NotRunning)
   const [clearingChat, setClearingChat] = useState<boolean>(false)
   const [hideErrorDialog, { toggle: toggleErrorDialog }] = useBoolean(true)
@@ -126,10 +123,6 @@ const Chat = () => {
   let assistantContent = ''
 
   const processResultMessage = (resultMessage: ChatMessage, userMessage: ChatMessage, conversationId?: string) => {
-    if (resultMessage.content.includes('intent')) {
-      const parsedExecResults = JSON.parse(resultMessage.content);
-      setExecResults(parsedExecResults.intent)
-    }
 
     if (resultMessage.role === ASSISTANT) {
       assistantContent += resultMessage.content
@@ -682,7 +675,8 @@ const Chat = () => {
     setIsCitationPanelOpen(true)
   }
 
-  const onShowExecResult = () => {
+    const onShowIntent = (i: string[]) => {
+        setIntents(i)
     setIsIntentsPanelOpen(true)
   }
 
@@ -704,24 +698,17 @@ const Chat = () => {
     return []
   }
 
-  const parsePlotFromMessage = (message: ChatMessage) => {
-    if (message?.role && message?.role === "tool") {
-      try {
-        const execResults = JSON.parse(message.content) as ToolMessageContent;
-        const codeExecResult = execResults.intent;
-        if (codeExecResult === undefined) {
-          return null;
+    const parseIntentFromMessage = (message: ChatMessage) => {
+        if (message?.role && message?.role === 'tool') {
+            try {
+                const toolMessage = JSON.parse(message.content) as ToolMessageContent
+                return toolMessage.intent
+            } catch {
+                return []
+            }
         }
-        return codeExecResult;
-      }
-      catch {
-        return null;
-      }
-      // const execResults = JSON.parse(message.content) as AzureSqlServerExecResults;
-      // return execResults.all_exec_results.at(-1)?.code_exec_result;
+        return []
     }
-    return null;
-  }
 
   const disabledButton = () => {
     return (
@@ -784,13 +771,11 @@ const Chat = () => {
                           answer={{
                             answer: answer.content,
                             citations: parseCitationFromMessage(messages[index - 1]),
-                            plotly_data: parsePlotFromMessage(messages[index - 1]),
+                            intents: parseIntentFromMessage(messages[index - 1]),
                             message_id: answer.id,
-                            feedback: answer.feedback,
-                            exec_results: execResults
                           }}
                           onCitationClicked={c => onShowCitation(c)}
-                          onExectResultClicked={() => onShowExecResult()}
+                          onIntentClicked={(i) => onShowIntent(i)}
                         />
                       </div>
                     ) : answer.role === ERROR ? (
@@ -810,11 +795,11 @@ const Chat = () => {
                       <Answer
                         answer={{
                           answer: "Generating answer...",
-                          citations: [],
-                          plotly_data: null
+                        citations: [],
+                          intents: [],
                         }}
                         onCitationClicked={() => null}
-                        onExectResultClicked={() => null}
+                        onIntentClicked={() => null}
                       />
                     </div>
                   </>
@@ -977,30 +962,10 @@ const Chat = () => {
                 />
               </Stack>
               <Stack horizontalAlign="space-between">
-                {execResults.map((execResult) => {
+                {intents.map((intent) => {
                   return (
                     <Stack className={styles.exectResultList} verticalAlign="space-between">
-                      <><span>Intent:</span> <p>{execResult.intent}</p></>
-                      {execResult.search_query && <><span>Search Query:</span>
-                        <SyntaxHighlighter
-                          style={nord}
-                          wrapLines={true}
-                          lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }}
-                          language="sql"
-                          PreTag="p">
-                          {execResult.search_query}
-                        </SyntaxHighlighter></>}
-                      {execResult.search_result && <><span>Search Result:</span> <p>{execResult.search_result}</p></>}
-                      {execResult.code_generated && <><span>Code Generated:</span>
-                        <SyntaxHighlighter
-                          style={nord}
-                          wrapLines={true}
-                          lineProps={{ style: { wordBreak: 'break-all', whiteSpace: 'pre-wrap' } }}
-                          language="python"
-                          PreTag="p">
-                          {execResult.code_generated}
-                        </SyntaxHighlighter>
-                      </>}
+                      <><span>Intent:</span> <p>{intent}</p></>
                     </Stack>
                   )
                 })}
