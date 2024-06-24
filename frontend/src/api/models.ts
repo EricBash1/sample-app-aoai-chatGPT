@@ -20,7 +20,7 @@ export type Citation = {
 
 export type ToolMessageContent = {
   citations: Citation[]
-  intent: string[]
+  intent: string
 }
 
 export type ChatMessage = {
