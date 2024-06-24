@@ -1,3 +1,4 @@
+if not defined in_subprocess (cmd /k set in_subprocess=y ^& %0 %*) & exit )
 @echo off
 
 set NODE_OPTIONS=--max_old_space_size=8192
