@@ -689,7 +689,7 @@ const Chat = () => {
   const parseCitationFromMessage = (message: ChatMessage) => {
     if (message?.role && message?.role === 'tool') {
       try {
-        const toolMessage = JSON.parse(message.content) as ToolMessageContent
+        const toolMessage = JSON.parse(message.content)
         return toolMessage.citations
       } catch {
         return []
@@ -701,7 +701,7 @@ const Chat = () => {
     const parseIntentFromMessage = (message: ChatMessage) => {
         if (message?.role && message?.role === 'tool') {
             try {
-                const toolMessage = JSON.parse(message.content) as ToolMessageContent
+                const toolMessage = JSON.parse(message.content)
                 return toolMessage.intent
             } catch {
                 return []
