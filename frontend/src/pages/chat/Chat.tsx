@@ -707,7 +707,7 @@ const Chat = () => {
   const parsePlotFromMessage = (message: ChatMessage) => {
     if (message?.role && message?.role === "tool") {
       try {
-        const execResults = JSON.parse(message.content);
+        const execResults = JSON.parse(message.content) as ToolMessageContent;
         const codeExecResult = execResults.intent;
         if (codeExecResult === undefined) {
           return null;
