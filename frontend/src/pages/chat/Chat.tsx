@@ -126,9 +126,9 @@ const Chat = () => {
   let assistantContent = ''
 
   const processResultMessage = (resultMessage: ChatMessage, userMessage: ChatMessage, conversationId?: string) => {
-    if (resultMessage.content.includes('all_exec_results')) {
-      const parsedExecResults = JSON.parse(resultMessage.content) as AzureSqlServerExecResults
-      setExecResults(parsedExecResults.all_exec_results)
+    if (resultMessage.content.includes('intent')) {
+      const parsedExecResults = JSON.parse(resultMessage.content);
+      setExecResults(parsedExecResults.intent)
     }
 
     if (resultMessage.role === ASSISTANT) {
@@ -707,8 +707,8 @@ const Chat = () => {
   const parsePlotFromMessage = (message: ChatMessage) => {
     if (message?.role && message?.role === "tool") {
       try {
-        const execResults = JSON.parse(message.content) as AzureSqlServerExecResults;
-        const codeExecResult = execResults.all_exec_results.at(-1)?.code_exec_result;
+        const execResults = JSON.parse(message.content);
+        const codeExecResult = execResults.intent;
         if (codeExecResult === undefined) {
           return null;
         }
