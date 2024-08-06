@@ -1,13 +1,10 @@
-import Plotly from 'react-plotly.js'
-
 export type AskResponse = {
   answer: string
   citations: Citation[]
-  plotly_data: AzureSqlServerCodeExecResult | null
+  intents: string[]
   error?: string
   message_id?: string
   feedback?: Feedback
-  exec_results?: ExecResults[]
 }
 
 export type Citation = {
@@ -22,28 +19,6 @@ export type Citation = {
   reindex_id: string | null
 }
 
-export type ToolMessageContent = {
-  citations: Citation[]
-  intent: string
-}
-
-export type AzureSqlServerCodeExecResult = {
-  data: Plotly.Data[]
-  layout: Partial<Plotly.Layout>
-}
-
-export type AzureSqlServerExecResult = {
-  intent: string
-  search_query: string | null
-  search_result: string | null
-  code_generated: string | null
-  code_exec_result?: AzureSqlServerCodeExecResult | undefined
-}
-
-export type AzureSqlServerExecResults = {
-  all_exec_results: AzureSqlServerExecResult[]
-}
-
 export type ChatMessage = {
   id: string
   role: string
@@ -52,13 +27,6 @@ export type ChatMessage = {
   date: string
   feedback?: Feedback
   context?: string
-}
-
-export type ExecResults = {
-  intent: string
-  search_query: string | null
-  search_result: string | null
-  code_generated: string | null
 }
 
 export type Conversation = {
@@ -137,7 +105,8 @@ export type UI = {
   logo?: string
   chat_logo?: string
   show_share_button?: boolean
-  show_chat_history_button?: boolean
+    show_chat_history_button?: boolean,
+    input_placeholder: string
 }
 
 export type FrontendSettings = {

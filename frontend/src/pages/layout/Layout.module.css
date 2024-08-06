@@ -109,3 +109,7 @@
     margin-left: 26px;
   }
 }
+
+header[role="banner"] {
+    padding: 8px 0;
+}
