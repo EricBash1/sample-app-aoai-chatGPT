@@ -104,4 +104,4 @@ jobs:
         with:
           app-name: 'ase-proposal-files'
           slot-name: 'Production'
-          publish-profile: ${{ secrets.DEV_PULBISH }}
+          publish-profile: ${{ secrets.PULBISH }}
