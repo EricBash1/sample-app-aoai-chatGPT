@@ -41,7 +41,6 @@ def create_app():
     app = Quart(__name__)
     app.register_blueprint(bp)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
-    app.config["PROVIDE_AUTOMATIC_OPTIONS"] = True
     return app
 
 
