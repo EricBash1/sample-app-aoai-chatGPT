@@ -558,10 +558,11 @@ const Chat = () => {
     }
 
     const onViewSource = (citation: Citation) => {
-        if (citation.url) {
-            const url = citation.url + '?sp=r&st=2025-01-07T18:17:41Z&se=2225-01-08T02:17:41Z&spr=https&sv=2022-11-02&sr=c&sig=JSA%2Bp6dOKYKR7PuKJ8Aa0XCp5gejDU6QW7zY7g1tmzE%3D'
-            window.open(url, '_blank')
-        }
+        console.log("Open");
+        //if (citation.url) {
+        //    const url = citation.url + '?sp=r&st=2025-01-07T18:17:41Z&se=2225-01-08T02:17:41Z&spr=https&sv=2022-11-02&sr=c&sig=JSA%2Bp6dOKYKR7PuKJ8Aa0XCp5gejDU6QW7zY7g1tmzE%3D'
+        //    window.open(url, '_blank')
+        //}
     }
 
     const parseCitationsFromMessage = (message: ChatMessage) => {
