@@ -558,7 +558,7 @@ const Chat = () => {
     }
 
     const onViewSource = (citation: Citation) => {
-        if (citation.url)) {
+        if (citation.url) {
             const url = citation.url + '?sp=r&st=2024-07-30T21:44:21Z&se=2124-07-31T05:44:21Z&spr=https&sv=2022-11-02&sr=c&sig=mKcyQtb%2FyTRYdLc%2BIOkwoxqMEpsrZCeXrynOkZQkpJ8%3D'
             window.open(url, '_blank')
         }
