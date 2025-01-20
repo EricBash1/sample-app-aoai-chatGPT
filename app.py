@@ -42,6 +42,8 @@ def create_app():
     app.register_blueprint(bp)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.config["PROVIDE_AUTOMATIC_OPTIONS"] = True
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
     return app
 
 
