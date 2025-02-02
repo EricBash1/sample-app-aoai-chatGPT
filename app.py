@@ -192,17 +192,16 @@ def init_cosmosdb_logging_client():
                 f"https://{app_settings.chat_history.account}.documents.azure.com:443/"
             )
 
-            credential = (
-                DefaultAzureCredential()
-                if not app_settings.chat_history.account_key
-                else app_settings.chat_history.account_key
-            )
+            if not app_settings.chat_history.account_key:
+                credential = DefaultAzureCredential()
+            else:
+                credential = app_settings.chat_history.account_key
 
             cosmos_logging_client = CosmosConversationClient(
                 cosmosdb_endpoint=cosmos_endpoint,
                 credential=credential,
                 database_name=app_settings.chat_history.database,
-                container_name="user_access_logs",  # NEW container for logging
+                container_name="user_access_logs",
             )
         except Exception as e:
             logging.exception("Exception in CosmosDB logging initialization", e)
@@ -870,7 +869,7 @@ async def log_user_access():
         # Get authenticated user details
         authenticated_user = get_authenticated_user_details(request_headers=request.headers)
         user_id = authenticated_user["user_principal_id"]
-        user_email = authenticated_user.get("user_email", "unknown@unknown.com")  # Ensure email exists
+        user_email = authenticated_user.get("user_name", "unknown@unknown.com")  # Ensure email exists
 
         # Initialize Cosmos DB Client
         cosmos_client = init_cosmosdb_logging_client()  
