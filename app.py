@@ -184,6 +184,33 @@ def init_cosmosdb_client():
     return cosmos_conversation_client
 
 
+def init_cosmosdb_logging_client():
+    cosmos_logging_client = None
+    if app_settings.chat_history:
+        try:
+            cosmos_endpoint = (
+                f"https://{app_settings.chat_history.account}.documents.azure.com:443/"
+            )
+
+            credential = (
+                DefaultAzureCredential()
+                if not app_settings.chat_history.account_key
+                else app_settings.chat_history.account_key
+            )
+
+            cosmos_logging_client = CosmosConversationClient(
+                cosmosdb_endpoint=cosmos_endpoint,
+                credential=credential,
+                database_name=app_settings.chat_history.database,
+                container_name="user_access_logs",  # NEW container for logging
+            )
+        except Exception as e:
+            logging.exception("Exception in CosmosDB logging initialization", e)
+            cosmos_logging_client = None
+            raise e
+    return cosmos_logging_client
+
+
 def prepare_model_args(request_body, request_headers):
     request_messages = request_body.get("messages", [])
     messages = []
@@ -834,6 +861,30 @@ async def ensure_cosmos():
             )
         else:
             return jsonify({"error": "CosmosDB is not working"}), 500
+
+
+@bp.route("/log_user_access", methods=["GET"])
+async def log_user_access():
+    """Log user access when they visit the app."""
+    try:
+        # Get authenticated user details
+        authenticated_user = get_authenticated_user_details(request_headers=request.headers)
+        user_id = authenticated_user["user_principal_id"]
+        user_email = authenticated_user.get("user_email", "unknown@unknown.com")  # Ensure email exists
+
+        # Initialize Cosmos DB Client
+        cosmos_client = init_cosmosdb_logging_client()  
+        if not cosmos_client:
+            raise Exception("CosmosDB is not configured or not working")
+
+        # Log user access (passing the client explicitly)
+        await cosmos_client.log_user_access(user_id, user_email)
+
+        return jsonify({"message": "User access logged successfully"}), 200
+
+    except Exception as e:
+        logging.exception("Error in /log_user_access")
+        return jsonify({"error": str(e)}), 500
 
 
 async def generate_title(conversation_messages) -> str:

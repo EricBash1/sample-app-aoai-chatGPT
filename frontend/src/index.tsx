@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
 import { HashRouter, Route, Routes } from 'react-router-dom'
 import { initializeIcons } from '@fluentui/react'
@@ -15,22 +15,30 @@ initializeIcons(
 );
 
 export default function App() {
-  return (
-    <AppStateProvider>
-      <HashRouter>
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Chat />} />
-            <Route path="*" element={<NoPage />} />
-          </Route>
-        </Routes>
-      </HashRouter>
-    </AppStateProvider>
-  )
+
+    useEffect(() => {
+        fetch("/log_user_access", { method: "GET", credentials: "include" })
+            .then(response => response.json())
+            .then(data => console.log("User access logged:", data))
+            .catch(error => console.error("Logging user access failed:", error));
+    }, []); // Empty dependency array ensures it runs once on mount
+
+    return (
+        <AppStateProvider>
+            <HashRouter>
+                <Routes>
+                    <Route path="/" element={<Layout />}>
+                        <Route index element={<Chat />} />
+                        <Route path="*" element={<NoPage />} />
+                    </Route>
+                </Routes>
+            </HashRouter>
+        </AppStateProvider>
+    )
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+    <React.StrictMode>
+        <App />
+    </React.StrictMode>
 )

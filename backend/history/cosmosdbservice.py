@@ -181,3 +181,20 @@ class CosmosConversationClient():
 
         return messages
 
+    async def log_user_access(self, user_id, email):
+        """Logs user access with email and timestamp into Cosmos DB."""
+        log_entry = {
+            'id': str(uuid.uuid4()),  
+            'type': 'user_access_log',
+            'timestamp': datetime.utcnow().isoformat(),  
+            'userId': user_id,
+            'email': email
+        }
+
+        try:
+            # Use the existing Cosmos DB client (passed from app.py)
+            resp = await self.container_client.upsert_item(log_entry)  
+            return resp if resp else False
+        except Exception as e:
+            print(f"Error logging user access: {e}")
+            return False
