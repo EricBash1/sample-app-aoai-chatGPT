@@ -869,7 +869,7 @@ async def log_user_access():
         # Get authenticated user details
         authenticated_user = get_authenticated_user_details(request_headers=request.headers)
         user_id = authenticated_user["user_principal_id"]
-        user_email = authenticated_user.get("user_name", "unknown@unknown.com")  # Ensure email exists
+        user_name = authenticated_user.get("user_name", "unknown@unknown.com")  # Ensure email exists
 
         # Initialize Cosmos DB Client
         cosmos_client = init_cosmosdb_logging_client()  
@@ -877,7 +877,7 @@ async def log_user_access():
             raise Exception("CosmosDB is not configured or not working")
 
         # Log user access (passing the client explicitly)
-        await cosmos_client.log_user_access(user_id, user_email)
+        await cosmos_client.log_user_access(user_id, user_name)
 
         return jsonify({"message": "User access logged successfully"}), 200
 

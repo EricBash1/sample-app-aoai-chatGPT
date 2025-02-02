@@ -181,14 +181,14 @@ class CosmosConversationClient():
 
         return messages
 
-    async def log_user_access(self, user_id, email):
+    async def log_user_access(self, user_id, user_name):
         """Logs user access with email and timestamp into Cosmos DB."""
         log_entry = {
             'id': str(uuid.uuid4()),  
             'type': 'user_access_log',
             'timestamp': datetime.utcnow().isoformat(),  
             'userId': user_id,
-            'email': email
+            'user_name': user_name
         }
 
         try:
