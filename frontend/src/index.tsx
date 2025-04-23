@@ -25,13 +25,18 @@ export default function App() {
 
     return (
         <AppStateProvider>
-            <HashRouter>
-                <Routes>
-                    <Route path="/" element={<Layout />}>
-                        <Route index element={<Chat />} />
-                        <Route path="*" element={<NoPage />} />
-                    </Route>
-                </Routes>
+          <HashRouter>
+            <Routes>
+                <Route path="/" element={<Layout />}>
+                {/* root → new conversation */}
+                <Route index element={<Chat />} />
+
+                {/* “/#/<guid>” → load that conversation */}
+                <Route path=":conversationId" element={<Chat />} />
+
+                <Route path="*" element={<NoPage />} />
+                </Route>
+            </Routes>
             </HashRouter>
         </AppStateProvider>
     )

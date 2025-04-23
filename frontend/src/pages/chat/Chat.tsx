@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify'
 import styles from './Chat.module.css'
 import andyLogo from '../../assets/&NDY-logo.png'
 import { XSSAllowTags } from '../../constants/sanatizeAllowables'
+import { useParams, useNavigate } from 'react-router-dom'
 
 import {
     ChatMessage,
@@ -20,6 +21,7 @@ import {
     historyGenerate,
     historyUpdate,
     historyClear,
+    historyRead,
     ChatHistoryLoadingState,
     CosmosDBStatus,
     ErrorMessage,
@@ -37,6 +39,8 @@ const enum messageStatus {
 }
 
 const Chat = () => {
+    const { conversationId } = useParams<{ conversationId?: string }>();
+    const navigate            = useNavigate();
     const appStateContext = useContext(AppStateContext)
     const ui = appStateContext?.state.frontendSettings?.ui
     const AUTH_ENABLED = appStateContext?.state.frontendSettings?.auth_enabled
@@ -105,6 +109,30 @@ const Chat = () => {
     useEffect(() => {
         setIsLoading(appStateContext?.state.chatHistoryLoadingState === ChatHistoryLoadingState.Loading)
     }, [appStateContext?.state.chatHistoryLoadingState])
+
+    useEffect(() => {
+        if (!conversationId) return;                                           // nothing in the URL
+
+        // Skip if we already have this conversation in context
+        if (appStateContext?.state.currentChat?.id === conversationId) return;
+
+        (async () => {
+            setIsLoading(true);
+            try {
+                const msgs  = await historyRead(conversationId);               // ⬅️ api call
+                const conv  = {
+                    id:       conversationId,
+                    title:    msgs[0]?.content?.slice(0, 30) || 'Conversation',
+                    messages: msgs,
+                    date:     new Date().toISOString()
+                };
+                appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: conv });
+                setMessages(msgs);
+            } finally {
+                setIsLoading(false);
+            }
+        })();
+    }, [conversationId]);  
 
     const getUserInfoList = async () => {
         if (!AUTH_ENABLED) {
@@ -287,6 +315,8 @@ const Chat = () => {
                     isEmpty(toolMessage)
                         ? resultConversation.messages.push(assistantMessage)
                         : resultConversation.messages.push(toolMessage, assistantMessage)
+
+                    navigate(`/${resultConversation.id}`, { replace: true })
                 } else {
                     resultConversation = {
                         id: result.history_metadata.conversation_id,
@@ -297,6 +327,8 @@ const Chat = () => {
                     isEmpty(toolMessage)
                         ? resultConversation.messages.push(assistantMessage)
                         : resultConversation.messages.push(toolMessage, assistantMessage)
+
+                        navigate(`/${resultConversation.id}`, { replace: true })
                 }
                 if (!resultConversation) {
                     setIsLoading(false)
