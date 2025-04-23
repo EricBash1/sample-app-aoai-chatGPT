@@ -116,7 +116,7 @@ class CosmosConversationClient():
                 'value': user_id
             }
         ]
-        query = f"SELECT * FROM c where c.id = @conversationId and c.type='conversation' and c.userId = @userId"
+        query = f"SELECT * FROM c where c.id = @conversationId and c.type='conversation'"
         conversations = []
         async for item in self.container_client.query_items(query=query, parameters=parameters):
             conversations.append(item)
