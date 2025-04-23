@@ -51,6 +51,27 @@ async def index():
         html_title=app_settings.ui.html_title,
         favicon=app_settings.ui.favicon
     )
+    
+@bp.route("/<path:requested_path>")
+async def spa_fallback(requested_path: str):
+    """
+    1. If the requested file exists in ./static, serve it directly
+       (JS bundle, images, favicon, etc.).
+    2. Otherwise return index.html so React BrowserRouter can handle the URL.
+    """
+    static_folder = os.path.join(os.path.dirname(__file__), "static")
+
+    file_path = os.path.join(static_folder, requested_path)
+    if os.path.exists(file_path):
+        # let Quart serve the real file
+        return await send_from_directory(static_folder, requested_path)
+
+    # anything else → React entry point
+    return await render_template(
+        "index.html",
+        html_title=app_settings.ui.html_title,
+        favicon=app_settings.ui.favicon
+    )  
 
 
 @bp.route("/favicon.ico")

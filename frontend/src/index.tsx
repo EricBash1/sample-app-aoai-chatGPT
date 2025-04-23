@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import ReactDOM from 'react-dom/client'
-import { HashRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { initializeIcons } from '@fluentui/react'
 
 import Chat from './pages/chat/Chat'
@@ -25,7 +25,7 @@ export default function App() {
 
     return (
         <AppStateProvider>
-          <HashRouter>
+          <BrowserRouter>
             <Routes>
                 <Route path="/" element={<Layout />}>
                 {/* root → new conversation */}
@@ -37,7 +37,7 @@ export default function App() {
                 <Route path="*" element={<NoPage />} />
                 </Route>
             </Routes>
-            </HashRouter>
+            </BrowserRouter>
         </AppStateProvider>
     )
 }

@@ -119,12 +119,7 @@ export const ChatHistoryListItemCell: React.FC<ChatHistoryListItemCellProps> = (
     onSelect(item)
     appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: item })
     if (item) {
-      // after
-        navigate({
-          pathname: '/',                           // stays "/"
-          search:   '?cid=' + item.id,             // --> ?cid=123...
-          hash:     '/'                            // keeps HashRouter happy
-        });
+      navigate('/' + item.id);
     }
   }
 
