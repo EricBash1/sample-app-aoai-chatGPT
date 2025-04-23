@@ -10,7 +10,7 @@ import DOMPurify from 'dompurify'
 import styles from './Chat.module.css'
 import andyLogo from '../../assets/&NDY-logo.png'
 import { XSSAllowTags } from '../../constants/sanatizeAllowables'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 
 import {
     ChatMessage,
@@ -39,7 +39,8 @@ const enum messageStatus {
 }
 
 const Chat = () => {
-    const { conversationId } = useParams<{ conversationId?: string }>();
+    const [search]   = useSearchParams();
+    const conversationId       = search.get('cid');
     const navigate            = useNavigate();
     const appStateContext = useContext(AppStateContext)
     const ui = appStateContext?.state.frontendSettings?.ui
@@ -316,7 +317,12 @@ const Chat = () => {
                         ? resultConversation.messages.push(assistantMessage)
                         : resultConversation.messages.push(toolMessage, assistantMessage)
 
-                    navigate(`/${resultConversation.id}`, { replace: true })
+                    navigate({
+                        pathname: '/',                           // stays "/"
+                        search:   '?cid=' + conversationId,      // --> ?cid=123...
+                        hash:     '/'                            // keeps HashRouter happy
+                        });
+
                 } else {
                     resultConversation = {
                         id: result.history_metadata.conversation_id,
@@ -328,7 +334,11 @@ const Chat = () => {
                         ? resultConversation.messages.push(assistantMessage)
                         : resultConversation.messages.push(toolMessage, assistantMessage)
 
-                        navigate(`/${resultConversation.id}`, { replace: true })
+                    navigate({
+                        pathname: '/',                           // stays "/"
+                        search:   '?cid=' + conversationId,      // --> ?cid=123...
+                        hash:     '/'                            // keeps HashRouter happy
+                        });
                 }
                 if (!resultConversation) {
                     setIsLoading(false)
