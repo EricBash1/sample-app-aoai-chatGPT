@@ -25,6 +25,7 @@ import { AppStateContext } from '../../state/AppProvider'
 import { GroupedChatHistory } from './ChatHistoryList'
 
 import styles from './ChatHistoryPanel.module.css'
+import { useNavigate } from 'react-router-dom'
 
 interface ChatHistoryListItemCellProps {
   item?: Conversation
@@ -50,6 +51,7 @@ const formatMonth = (month: string) => {
 }
 
 export const ChatHistoryListItemCell: React.FC<ChatHistoryListItemCellProps> = ({ item, onSelect }) => {
+  const navigate = useNavigate(); 
   const [isHovered, setIsHovered] = React.useState(false)
   const [edit, setEdit] = useState(false)
   const [editTitle, setEditTitle] = useState('')
@@ -116,6 +118,9 @@ export const ChatHistoryListItemCell: React.FC<ChatHistoryListItemCellProps> = (
   const handleSelectItem = () => {
     onSelect(item)
     appStateContext?.dispatch({ type: 'UPDATE_CURRENT_CHAT', payload: item })
+    if (item) {
+      navigate('/' + item.id);   
+    }
   }
 
   const truncatedTitle = item?.title?.length > 28 ? `${item.title.substring(0, 28)} ...` : item.title
