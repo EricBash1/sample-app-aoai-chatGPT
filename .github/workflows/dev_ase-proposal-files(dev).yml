@@ -33,19 +33,26 @@ jobs:
         working-directory: frontend
         run: NODE_OPTIONS=--max_old_space_size=8192 npm run build
 
-      - name: Copy built frontend into backend/static
+      # Vite is configured to emit to ../static, so verify outputs
+      - name: Show build outputs
         run: |
-          rm -rf backend/static
-          mkdir -p backend/static
-          cp -r frontend/dist/* backend/static/
+          echo "Listing root/static:"
+          ls -la static || true
+          echo "Listing root/static/assets:"
+          ls -la static/assets || true
 
-      # Optional: slim the zip
+      # Optional: slim the zip (frontend deps aren't needed on App Service)
       - name: Remove frontend node_modules from package
         run: rm -rf frontend/node_modules
 
-      - name: Create deployment zip (entire repo, preserves backend/ path)
+      - name: Create deployment zip (entire repo)
         run: |
-          zip -r app.zip . -x "**/.git/**"
+          zip -r app.zip . \
+            -x "**/.git/**" \
+               "**/.github/**" \
+               "**/node_modules/**" \
+               "**/.venv/**" \
+               "**/__pycache__/**"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
