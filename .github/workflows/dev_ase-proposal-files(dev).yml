@@ -102,6 +102,6 @@ jobs:
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
-          app-name: 'ase-proposal-files'
+          app-name: 'ase-proposal-files(dev)'
           slot-name: 'dev'
           publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
