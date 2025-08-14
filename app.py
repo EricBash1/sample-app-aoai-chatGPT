@@ -34,6 +34,8 @@ from backend.utils import (
     format_pf_non_streaming_response,
 )
 
+from backend.filter_compiler import build_odata_filter_from_query
+
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
 
 
@@ -231,7 +233,7 @@ def init_cosmosdb_logging_client():
     return cosmos_logging_client
 
 
-def prepare_model_args(request_body, request_headers):
+def prepare_model_args(request_body, request_headers, nl_filter: str | None = None):
     request_messages = request_body.get("messages", [])
     messages = []
     if not app_settings.datasource:
@@ -272,10 +274,27 @@ def prepare_model_args(request_body, request_headers):
         model_args["extra_body"] = {
             "data_sources": [
                 app_settings.datasource.construct_payload_configuration(
-                    request=request
+                    request=request,
+                    nl_filter=nl_filter,
                 )
             ]
         }
+
+    try:
+        ds_params = (
+            model_args.get("extra_body", {})
+            .get("data_sources", [{}])[0]
+            .get("parameters", {})
+        )
+        outgoing_filter = ds_params.get("filter")
+        history_md = request_body.get("history_metadata") or {}
+        if outgoing_filter:
+            dbg = history_md.get("search") or {}
+            dbg["odata_filter"] = outgoing_filter
+            history_md["search"] = dbg
+            request_body["history_metadata"] = history_md
+    except Exception:
+        pass
 
     model_args_clean = copy.deepcopy(model_args)
     if model_args_clean.get("extra_body"):
@@ -350,20 +369,42 @@ async def promptflow_request(request):
 
 
 async def send_chat_request(request_body, request_headers):
+    # strip tool messages as you already do
     filtered_messages = []
     messages = request_body.get("messages", [])
     for message in messages:
         if message.get("role") != 'tool':
             filtered_messages.append(message)
-            
     request_body['messages'] = filtered_messages
-    model_args = prepare_model_args(request_body, request_headers)
 
+    # 1) Initialize client early so we can reuse it
+    azure_openai_client = init_openai_client()
+
+    # 2) Grab latest user message text
+    user_text = ""
+    for m in reversed(request_body.get("messages", [])):
+        if m.get("role") == "user" and isinstance(m.get("content"), str):
+            user_text = m["content"]
+            break
+
+    # 3) Ask LLM for filters (best-effort; swallow failures)
+    nl_filter = None
     try:
-        azure_openai_client = init_openai_client()
+        nl_filter, debug_json = await build_odata_filter_from_query(user_text, azure_openai_client)
+        if nl_filter:
+            logging.debug(f"NL OData filter: {nl_filter}")
+            logging.debug(f"NL constraints: {json.dumps(debug_json, ensure_ascii=False)}")
+    except Exception as e:
+        logging.warning("Skipping NL filter due to error: %s", e)
+
+    # 4) Prepare model args with the filter
+    model_args = prepare_model_args(request_body, request_headers, nl_filter=nl_filter)
+
+    # 5) Make the chat call
+    try:
         raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
         response = raw_response.parse()
-        apim_request_id = raw_response.headers.get("apim-request-id") 
+        apim_request_id = raw_response.headers.get("apim-request-id")
     except Exception as e:
         logging.exception("Exception in send_chat_request")
         raise e

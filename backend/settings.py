@@ -269,7 +269,7 @@ class _AzureSearchSettings(BaseSettings, DatasourcePayloadConstructor):
     authentication: Optional[dict] = None
     embedding_dependency: Optional[dict] = None
     fields_mapping: Optional[dict] = None
-    filter: Optional[str] = Field(default=None, exclude=True)
+    filter: Optional[str] = None
     
     @field_validator('content_columns', 'vector_columns', mode="before")
     @classmethod
@@ -323,20 +323,28 @@ class _AzureSearchSettings(BaseSettings, DatasourcePayloadConstructor):
         
         return None
             
-    def construct_payload_configuration(
-        self,
-        *args,
-        **kwargs
-    ):
+    def construct_payload_configuration(self, *args, **kwargs):
         request = kwargs.pop('request', None)
+        nl_filter: Optional[str] = kwargs.pop('nl_filter', None)
+
+        acl_filter = None
         if request and self.permitted_groups_column:
-            self.filter = self._set_filter_string(request)
-            
-        self.embedding_dependency = \
-            self._settings.azure_openai.extract_embedding_dependency()
+            acl_filter = self._set_filter_string(request)
+
+        # combine filters if both present
+        combined = None
+        if acl_filter and nl_filter:
+            combined = f"({acl_filter}) and ({nl_filter})"
+        else:
+            combined = nl_filter or acl_filter
+
+        if combined:
+            self.filter = combined
+
+        self.embedding_dependency = self._settings.azure_openai.extract_embedding_dependency()
         parameters = self.model_dump(exclude_none=True, by_alias=True)
         parameters.update(self._settings.search.model_dump(exclude_none=True, by_alias=True))
-        
+
         return {
             "type": self._type,
             "parameters": parameters

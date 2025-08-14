@@ -90,11 +90,15 @@ def format_non_streaming_response(chatCompletion, history_metadata, apim_request
         message = chatCompletion.choices[0].message
         if message:
             if hasattr(message, "context"):
+                ctx = message.context or {}
+                try:
+                    f = (history_metadata or {}).get("search", {}).get("odata_filter")
+                    if f:
+                        ctx = {**ctx, "search": {**ctx.get("search", {}), "odata_filter": f}}
+                except Exception:
+                    pass
                 response_obj["choices"][0]["messages"].append(
-                    {
-                        "role": "tool",
-                        "content": json.dumps(message.context),
-                    }
+                    {"role": "tool", "content": json.dumps(ctx)}
                 )
             response_obj["choices"][0]["messages"].append(
                 {
@@ -121,7 +125,14 @@ def format_stream_response(chatCompletionChunk, history_metadata, apim_request_i
         delta = chatCompletionChunk.choices[0].delta
         if delta:
             if hasattr(delta, "context"):
-                messageObj = {"role": "tool", "content": json.dumps(delta.context)}
+                ctx = delta.context or {}
+                try:
+                    f = (history_metadata or {}).get("search", {}).get("odata_filter")
+                    if f:
+                        ctx = {**ctx, "search": {**ctx.get("search", {}), "odata_filter": f}}
+                except Exception:
+                    pass
+                messageObj = {"role": "tool", "content": json.dumps(ctx)}
                 response_obj["choices"][0]["messages"].append(messageObj)
                 return response_obj
             if delta.role == "assistant" and hasattr(delta, "context"):

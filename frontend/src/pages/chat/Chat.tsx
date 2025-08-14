@@ -134,6 +134,20 @@ const Chat = () => {
         })();
     }, [conversationId]);  
 
+    // Debug helper: safely parse tool content and log the OData filter if present
+    const logODataFilterFromTool = (toolContent: any) => {
+        try {
+            const obj = typeof toolContent === 'string' ? JSON.parse(toolContent) : toolContent;
+            const f =
+            obj?.search?.odata_filter ||
+            obj?.odata_filter ||
+            obj?.filter; // be flexible about where it shows up
+            if (f) console.log('[Azure Search OData Filter]', f);
+        } catch {
+            // ignore JSON parse errors for partial chunks
+        }
+    };
+
     const getUserInfoList = async () => {
         if (!AUTH_ENABLED) {
             setShowAuthMessage(false)
@@ -168,7 +182,10 @@ const Chat = () => {
             }
         }
 
-        if (resultMessage.role === TOOL) toolMessage = resultMessage
+        if (resultMessage.role === TOOL) {
+            toolMessage = resultMessage;
+            logODataFilterFromTool(resultMessage.content);
+        }
 
         if (!conversationId) {
             isEmpty(toolMessage)
