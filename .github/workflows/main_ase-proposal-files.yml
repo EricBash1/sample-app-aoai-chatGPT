@@ -1,107 +1,72 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-# More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
-
-name: Build and deploy Python app to Azure Web App - ase-proposal-files
+name: Build & deploy to PROD
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20.x"
+  APP_NAME: "ase-proposal-files"  # App Service name
+  SLOT_NAME: "Production"         # Main slot
+
 jobs:
-  build-backend:
+  build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python version
-        uses: actions/setup-python@v5
+      # Node / frontend
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          python-version: '3.11'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Create and start virtual environment
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-      
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-        
-      - name: Zip backend artifact for deployment
-        run: zip -r backend_release.zip .
-
-      - name: Upload backend artifact for deployment jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-app
-          path: backend_release.zip
-
-  build-frontend:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js 20.x
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20.x'
-          cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
-
-      - name: Install frontend npm packages
-        run: |
-          cd frontend
-          npm install
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
 
       - name: Build frontend
-        run: |
-          cd frontend
-          NODE_OPTIONS=--max_old_space_size=8192 npm run build
+        working-directory: frontend
+        run: NODE_OPTIONS=--max_old_space_size=8192 npm run build
 
-      - name: Zip static artifact for deployment
+      - name: Copy built frontend into backend/static
         run: |
-          cd static
-          zip -r ../static_release.zip .
+          rm -rf backend/static
+          mkdir -p backend/static
+          cp -r frontend/dist/* backend/static/
 
-      - name: Upload static artifact for deployment jobs
+      # Optional: slim the zip
+      - name: Remove frontend node_modules from package
+        run: rm -rf frontend/node_modules
+
+      - name: Create deployment zip (entire repo, preserves backend/ path)
+        run: |
+          zip -r app.zip . -x "**/.git/**"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: static-app
-          path: static_release.zip
-          if-no-files-found: error
+          name: app
+          path: app.zip
 
   deploy:
     runs-on: ubuntu-latest
-    needs: [build-backend, build-frontend]
+    needs: build
     environment:
-      name: 'Production'
-      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-    
+      name: Production
     steps:
-      - name: Download backend artifact from build-backend job
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: backend-app
+          name: app
 
-      - name: Download static artifact from build-frontend job
-        uses: actions/download-artifact@v4
-        with:
-          name: static-app
-
-      - name: Unzip backend artifact for deployment
-        run: unzip -o backend_release.zip
-
-      - name: Unzip static artifact for deployment
-        run: unzip -o static_release.zip
-
-      - name: Deploy to Azure Web App
+      - name: Deploy to App Service (PROD)
         uses: azure/webapps-deploy@v3
-        id: deploy-to-webapp
         with:
-          app-name: 'ase-proposal-files'
-          slot-name: 'Production'
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          app-name: ${{ env.APP_NAME }}
+          slot-name: ${{ env.SLOT_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_PROD }}
+          package: app.zip
