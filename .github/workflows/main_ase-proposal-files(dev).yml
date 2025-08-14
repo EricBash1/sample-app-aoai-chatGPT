@@ -11,10 +11,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-backend:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read #This is required for actions/checkout
 
     steps:
       - uses: actions/checkout@v4
@@ -32,40 +30,78 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
         
-      # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
+      - name: Zip backend artifact for deployment
+        run: zip -r backend_release.zip .
 
-      - name: Zip artifact for deployment
-        run: zip release.zip ./* -r
-
-      - name: Upload artifact for deployment jobs
+      - name: Upload backend artifact for deployment jobs
         uses: actions/upload-artifact@v4
         with:
-          name: python-app
-          path: |
-            release.zip
-            !venv/
+          name: backend-app
+          path: backend_release.zip
+
+  build-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.x
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+
+      - name: Install frontend npm packages
+        run: |
+          cd frontend
+          npm install
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          NODE_OPTIONS=--max_old_space_size=8192 npm run build
+
+      - name: Zip static artifact for deployment
+        run: |
+          cd static
+          zip -r ../static_release.zip .
+
+      - name: Upload static artifact for deployment jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-app
+          path: static_release.zip
+          if-no-files-found: error
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build-backend, build-frontend]
     environment:
-      name: 'dev'
+      name: 'Production'
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
     
     steps:
-      - name: Download artifact from build job
+      - name: Download backend artifact from build-backend job
         uses: actions/download-artifact@v4
         with:
-          name: python-app
+          name: backend-app
 
-      - name: Unzip artifact for deployment
-        run: unzip release.zip
+      - name: Download static artifact from build-frontend job
+        uses: actions/download-artifact@v4
+        with:
+          name: static-app
 
-      
-      - name: 'Deploy to Azure Web App'
+      - name: Unzip backend artifact for deployment
+        run: unzip -o backend_release.zip
+
+      - name: Unzip static artifact for deployment
+        run: unzip -o static_release.zip
+
+      - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
           app-name: 'ase-proposal-files'
           slot-name: 'dev'
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_49AF0BEFEAB44CF4ADA3FD1DED868ADB }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
