@@ -21,6 +21,7 @@ from azure.identity.aio import (
 )
 from backend.auth.auth_utils import get_authenticated_user_details
 from backend.security.ms_defender_utils import get_msdefender_user_json
+from urllib.parse import urlencode
 from backend.history.cosmosdbservice import CosmosConversationClient
 from backend.settings import (
     app_settings,
@@ -92,6 +93,51 @@ if DEBUG.lower() == "true":
     logging.basicConfig(level=logging.DEBUG)
 
 USER_AGENT = "GitHubSampleWebApp/AsyncAzureOpenAI/1.0.0"
+
+# Hard-code for now; later make env-driven (AZURE_SEARCH_EMPLOYEES_INDEX)
+EMPLOYEES_INDEX_NAME = os.environ.get("AZURE_SEARCH_EMPLOYEES_INDEX", "employees-v1")
+
+async def _search_employee_ids(filter_str: str, top: int = 50) -> list[str]:
+    """
+    Query the employees index for employee_id values matching filter_str.
+    Uses the same service/key as your primary search datasource.
+    """
+    if not app_settings.datasource or not hasattr(app_settings.datasource, "endpoint"):
+        logging.warning("No Azure Search datasource configured; skipping employee prefilter.")
+        return []
+
+    endpoint = app_settings.datasource.endpoint  # e.g., https://<service>.search.windows.net
+    api_key = getattr(app_settings.datasource, "key", None)
+    if not api_key:
+        logging.warning("Azure Search API key not present in settings; employee prefilter requires an API key.")
+        return []
+
+    params = {
+        "api-version": "2023-11-01",
+        "$select": "employee_id",
+        "$top": str(top),
+    }
+    if filter_str:
+        params["$filter"] = filter_str
+
+    url = f"{endpoint}/indexes/{EMPLOYEES_INDEX_NAME}/docs?{urlencode(params, safe='(),\' ')}"
+
+    headers = {
+        "api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                logging.warning("Employees search error %s: %s", resp.status_code, resp.text)
+                return []
+            data = resp.json()
+            return [str(v.get("employee_id")) for v in data.get("value", []) if v.get("employee_id")]
+    except Exception as e:
+        logging.warning("Employees search call failed: %s", e)
+        return []
 
 
 # Frontend Settings via Environment Variables
@@ -369,7 +415,7 @@ async def promptflow_request(request):
 
 
 async def send_chat_request(request_body, request_headers):
-    # strip tool messages as you already do
+    # strip tool messages
     filtered_messages = []
     messages = request_body.get("messages", [])
     for message in messages:
@@ -377,30 +423,66 @@ async def send_chat_request(request_body, request_headers):
             filtered_messages.append(message)
     request_body['messages'] = filtered_messages
 
-    # 1) Initialize client early so we can reuse it
     azure_openai_client = init_openai_client()
 
-    # 2) Grab latest user message text
+    # latest user text
     user_text = ""
     for m in reversed(request_body.get("messages", [])):
         if m.get("role") == "user" and isinstance(m.get("content"), str):
             user_text = m["content"]
             break
 
-    # 3) Ask LLM for filters (best-effort; swallow failures)
-    nl_filter = None
+    # LLM → constraints JSON (shared across both stages)
+    from backend.filter_compiler import (
+        extract_constraints,
+        is_employee_intent,
+        constraints_to_odata_for_employees_index,
+        constraints_to_odata_for_docs_index,
+    )
+
+    constraints = None
     try:
-        nl_filter, debug_json = await build_odata_filter_from_query(user_text, azure_openai_client)
-        if nl_filter:
-            logging.debug(f"NL OData filter: {nl_filter}")
-            logging.debug(f"NL constraints: {json.dumps(debug_json, ensure_ascii=False)}")
+        constraints = await extract_constraints(user_text, azure_openai_client)
+        logging.debug("NL constraints: %s", json.dumps(constraints or {}, ensure_ascii=False))
     except Exception as e:
-        logging.warning("Skipping NL filter due to error: %s", e)
+        logging.warning("Skipping NL constraints due to error: %s", e)
 
-    # 4) Prepare model args with the filter
-    model_args = prepare_model_args(request_body, request_headers, nl_filter=nl_filter)
+    # Stage A: optional employee pre-filter
+    employees_filter = None
+    employee_ids = []
+    if constraints and is_employee_intent(constraints):
+        try:
+            employees_filter = constraints_to_odata_for_employees_index(constraints)
+            if employees_filter:
+                logging.debug("Employees index $filter: %s", employees_filter)
+                employee_ids = await _search_employee_ids(employees_filter, top=100)
+                logging.debug("Employee IDs matched: %s", employee_ids)
+        except Exception as e:
+            logging.warning("Employee prefilter failed: %s", e)
 
-    # 5) Make the chat call
+    # Stage B: docs filter (chain in employee_ids if any)
+    doc_filter = None
+    try:
+        doc_filter = constraints_to_odata_for_docs_index(constraints or {}, employee_ids or None)
+        if doc_filter:
+            logging.debug("Docs index $filter: %s", doc_filter)
+    except Exception as e:
+        logging.warning("Docs filter conversion failed: %s", e)
+
+    # Attach metadata for frontend (console.log)
+    # – use the 'odata_filter' key for your existing UI hook, plus extras for debugging.
+    hm = request_body.get("history_metadata") or {}
+    hm["search"] = {
+        "odata_filter": doc_filter,                # what went to the docs index
+        "employees_index_filter": employees_filter,
+        "employee_ids": employee_ids
+    }
+    request_body["history_metadata"] = hm
+
+    # Prepare model args (and combine with ACL filter inside construct_payload_configuration)
+    model_args = prepare_model_args(request_body, request_headers, nl_filter=doc_filter)
+
+    # Chat call
     try:
         raw_response = await azure_openai_client.chat.completions.with_raw_response.create(**model_args)
         response = raw_response.parse()
@@ -410,6 +492,7 @@ async def send_chat_request(request_body, request_headers):
         raise e
 
     return response, apim_request_id
+
 
 
 async def complete_chat_request(request_body, request_headers):
