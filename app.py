@@ -467,12 +467,17 @@ async def send_chat_request(request_body, request_headers):
         logging.warning("Docs filter conversion failed: %s", e)
 
     # Attach metadata for frontend (console.log)
-    # – use the 'odata_filter' key for your existing UI hook, plus extras for debugging.
     hm = request_body.get("history_metadata") or {}
     hm["search"] = {
-        "odata_filter": doc_filter,                # what went to the docs index
-        "employees_index_filter": employees_filter,
-        "employee_ids": employee_ids
+        # keep legacy key and an explicit docs key
+        "odata_filter": doc_filter,
+        "odata_filter_docs": doc_filter,
+
+        # employee filter with the key utils/frontend expect
+        "odata_filter_employees": employees_filter,
+
+        # helpful for debugging & chaining
+        "employee_ids": employee_ids,
     }
     request_body["history_metadata"] = hm
 

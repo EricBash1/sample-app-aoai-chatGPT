@@ -95,12 +95,9 @@ def format_non_streaming_response(chatCompletion, history_metadata, apim_request
                     search_meta = (history_metadata or {}).get("search", {}) or {}
                     search_ctx = ctx.get("search", {}) or {}
 
-                    for k in ("odata_filter", "odata_filter_docs", "odata_filter_employees", "employee_ids"):
-                        v = search_meta.get(k)
-                        if v:
-                            search_ctx[k] = v
-
-                    if search_ctx:
+                    # just merge whatever the backend put there
+                    if search_meta:
+                        search_ctx.update(search_meta)
                         ctx["search"] = search_ctx
                 except Exception:
                     pass

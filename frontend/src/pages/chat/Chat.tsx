@@ -136,16 +136,24 @@ const Chat = () => {
 
     // Debug helper: safely parse tool content and log the OData filter if present
     const logODataFilterFromTool = (toolContent: any) => {
-        try {
-            const obj = typeof toolContent === 'string' ? JSON.parse(toolContent) : toolContent;
-            const f =
-            obj?.search?.odata_filter ||
-            obj?.odata_filter ||
-            obj?.filter; // be flexible about where it shows up
-            if (f) console.log('[Azure Search OData Filter]', f);
-        } catch {
-            // ignore JSON parse errors for partial chunks
-        }
+    try {
+        const obj = typeof toolContent === 'string' ? JSON.parse(toolContent) : toolContent;
+        const search = obj?.search || obj;
+
+        const docs =
+        search?.odata_filter_docs ??
+        search?.odata_filter ??     // legacy
+        obj?.odata_filter ?? obj?.filter;
+
+        const employees = search?.odata_filter_employees;
+        const ids = search?.employee_ids;
+
+        if (docs)       console.log('[Docs OData]', docs);
+        if (employees)  console.log('[Employees OData]', employees);
+        if (ids)        console.log('[Employee IDs]', ids);
+    } catch {
+        // ignore JSON parse errors for partial chunks
+    }
     };
 
     const getUserInfoList = async () => {

@@ -118,12 +118,6 @@ def constraints_to_odata_for_docs_index(js: Dict, employee_ids: Optional[List[st
     if client_any:
         clauses.append(f"({client_any})")
 
-    # --- project states (top-level 'states' field) ---
-    states_vals: List[str] = _as_list(js.get("states"))
-    if states_vals:
-        states_any = _or_join([f"s eq {_q(v)}" for v in states_vals])
-        clauses.append(f"(states/any(s: {states_any}))")
-
     # --- tags (top-level collection) ---
     tags_vals: List[str] = _as_list(js.get("tags"))
     if tags_vals:
