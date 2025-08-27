@@ -95,21 +95,29 @@ USER_AGENT = "GitHubSampleWebApp/AsyncAzureOpenAI/1.0.0"
 
 EMPLOYEES_INDEX_NAME = "employees-v1"  # whatever yours is
 
-async def _search_employee_ids(filter_str: str, top: int = 50) -> list[str]:
+async def _search_employees(
+    filter_str: str,
+    top_ids: int = 100,
+    top_meta: int = 25,
+) -> tuple[list[str], list[dict]]:
+    """
+    One Azure Search call -> returns (employee_ids, employees_meta).
+    We'll request up to max(top_ids, top_meta) docs, then slice locally.
+    Assumes fields: employee_id,name,job_roles,state,status,years_experience,bio
+    """
     if not app_settings.datasource or not hasattr(app_settings.datasource, "endpoint"):
-        logging.warning("No Azure Search datasource configured; skipping employee prefilter.")
-        return []
+        return [], []
 
     endpoint = app_settings.datasource.endpoint.rstrip("/")
     api_key = getattr(app_settings.datasource, "key", None)
     if not api_key:
-        logging.warning("Azure Search API key not present in settings; employee prefilter requires an API key.")
-        return []
+        return [], []
 
+    take = max(int(top_ids), int(top_meta))
     params = {
         "api-version": "2023-11-01",
-        "$select": "employee_id",
-        "$top": str(top),
+        "$select": "employee_id,name,job_roles,state,status,years_experience,bio",
+        "$top": str(take),
     }
     if filter_str:
         params["$filter"] = filter_str
@@ -125,17 +133,36 @@ async def _search_employee_ids(filter_str: str, top: int = 50) -> list[str]:
             resp = await client.get(
                 f"{endpoint}/indexes/{EMPLOYEES_INDEX_NAME}/docs",
                 headers=headers,
-                params=params,  # ← let httpx handle encoding
+                params=params,
             )
-            if resp.status_code != 200:
-                logging.warning("Employees search error %s: %s", resp.status_code, resp.text)
-                return []
-            data = resp.json()
-            return [str(v.get("employee_id")) for v in data.get("value", []) if v.get("employee_id")]
+        if resp.status_code != 200:
+            logging.warning("Employees search error %s: %s", resp.status_code, resp.text)
+            return [], []
+
+        data = resp.json() or {}
+        rows = data.get("value", []) or []
+
+        # Build meta rows (cap length)
+        meta: list[dict] = []
+        for v in rows[:top_meta]:
+            meta.append({
+                "employee_id": str(v.get("employee_id") or ""),
+                "name": v.get("name") or "",
+                "job_roles": v.get("job_roles") or [],
+                "state": v.get("state") or "",
+                "status": v.get("status") or "",
+                "years_experience": int(v.get("years_experience") or 0),
+                "bio": (v.get("bio") or "").strip(),
+            })
+
+        # IDs (cap length)
+        ids = [str(v.get("employee_id")) for v in rows if v.get("employee_id")]
+        ids = ids[:top_ids]
+
+        return ids, meta
     except Exception as e:
         logging.warning("Employees search call failed: %s", e)
-        return []
-
+        return [], []
 
 # Frontend Settings via Environment Variables
 frontend_settings = {
@@ -446,17 +473,50 @@ async def send_chat_request(request_body, request_headers):
 
     # Stage A: optional employee pre-filter
     employees_filter = None
-    employee_ids = []
+    employee_ids: list[str] = []
+    employees_meta: list[dict] = []   # ← init up front
+
     if constraints and is_employee_intent(constraints):
         try:
             employees_filter = constraints_to_odata_for_employees_index(constraints)
             if employees_filter:
                 logging.debug("Employees index $filter: %s", employees_filter)
-                employee_ids = await _search_employee_ids(employees_filter, top=100)
+
+                # ONE call returns both ids + meta
+                employee_ids, employees_meta = await _search_employees(
+                    employees_filter, top_ids=100, top_meta=25
+                )
                 logging.debug("Employee IDs matched: %s", employee_ids)
+                logging.debug("Employees meta count: %d", len(employees_meta))
+
+                # If we have employees, inject compact system context so the model
+                # can answer even when docs are empty
+                if employees_meta:
+                    MAX_BIOS_CHARS = 400
+                    MAX_ROWS = 15
+                    lines = []
+                    for e in employees_meta[:MAX_ROWS]:
+                        roles = ", ".join(e.get("job_roles") or [])
+                        bio = (e.get("bio") or "")[:MAX_BIOS_CHARS]
+                        lines.append(
+                            f"- {e.get('name','')} (ID {e.get('employee_id','')}) — {roles or '—'}; "
+                            f"State: {e.get('state','') or '—'}; "
+                            f"Years: {e.get('years_experience',0)}; "
+                            f"Status: {e.get('status','') or '—'}"
+                            + (f"\n  Bio: {bio}" if bio else "")
+                        )
+                    roster = "\n".join(lines)
+                    system_hint = (
+                        "Context: The following employees were matched by the user’s query. "
+                        "If document citations are unavailable or sparse, you may still answer by listing these employees "
+                        "and summarizing why they match. Prefer concise bullet points.\n\n"
+                        f"{roster}"
+                    )
+                    request_body["messages"].insert(0, {"role": "system", "content": system_hint})
         except Exception as e:
             logging.warning("Employee prefilter failed: %s", e)
 
+    # Fetch employee metadata
     # Stage B: docs filter (chain in employee_ids if any)
     doc_filter = None
     try:
@@ -466,23 +526,35 @@ async def send_chat_request(request_body, request_headers):
     except Exception as e:
         logging.warning("Docs filter conversion failed: %s", e)
 
-    # Attach metadata for frontend (console.log)
+    # Debug context to frontend console
     hm = request_body.get("history_metadata") or {}
     hm["search"] = {
-        # keep legacy key and an explicit docs key
         "odata_filter": doc_filter,
         "odata_filter_docs": doc_filter,
-
-        # employee filter with the key utils/frontend expect
         "odata_filter_employees": employees_filter,
-
-        # helpful for debugging & chaining
         "employee_ids": employee_ids,
+        "employees_meta_count": len(employees_meta),
+        # Optional: a tiny preview of names for quick sanity-check in console
+        "employees_meta_names": [m.get("name") for m in employees_meta[:10]],
     }
     request_body["history_metadata"] = hm
 
-    # Prepare model args (and combine with ACL filter inside construct_payload_configuration)
+    # Prepare model args; optionally add tiny broad source when we have employees
     model_args = prepare_model_args(request_body, request_headers, nl_filter=doc_filter)
+    try:
+        if employees_meta and "extra_body" in model_args:
+            ds_list = model_args["extra_body"].get("data_sources", [])
+            if ds_list:
+                ds_broad = copy.deepcopy(ds_list[0])
+                ds_broad["parameters"].pop("filter", None)
+                ds_broad["parameters"]["strictness"] = 1
+                ds_broad["parameters"]["top_n_documents"] = min(
+                    3, int(ds_broad["parameters"].get("top_n_documents", 5))
+                )
+                ds_list.append(ds_broad)
+                model_args["extra_body"]["data_sources"] = ds_list
+    except Exception as e:
+        logging.warning("Could not add broad data source: %s", e)
 
     # Chat call
     try:
