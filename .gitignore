@@ -1,7 +1,47 @@
-.venv
-frontend/node_modules
-.env
-.azure/
+# --- Python ---
 __pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+*.so
+*.egg-info/
+.eggs/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage*
+coverage.xml
+htmlcov/
+
+# --- Node / Vite ---
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Built static assets (we rebuild in CI) ---
+# If your Vite build writes to /static at repo root, keep this ignored.
+# Remove this if you intentionally commit prebuilt assets.
+static/
+
+# --- Env & secrets ---
+.env
+.env.*
+!.env.sample             # keep the sample in git
+local.settings.json      # Azure Functions local secrets (if any)
+
+# --- Editor / OS ---
+.vscode/
+.vs/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
 .ipynb_checkpoints/
-.vs
+
+# --- Azure / CI artifacts ---
+.azure/
+*.zip                    # e.g., app.zip, backend_release.zip
