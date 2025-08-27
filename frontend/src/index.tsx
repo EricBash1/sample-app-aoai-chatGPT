@@ -18,8 +18,6 @@ export default function App() {
 
     useEffect(() => {
         fetch("/log_user_access", { method: "GET", credentials: "include" })
-            .then(response => response.json())
-            .then(data => console.log("User access logged:", data))
             .catch(error => console.error("Logging user access failed:", error));
     }, []); // Empty dependency array ensures it runs once on mount
 

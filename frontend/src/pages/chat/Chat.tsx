@@ -312,8 +312,6 @@ const Chat = () => {
                             if (!(e instanceof SyntaxError)) {
                                 console.error(e)
                                 throw e
-                            } else {
-                                console.log('Incomplete message. Continuing...')
                             }
                         }
                     })

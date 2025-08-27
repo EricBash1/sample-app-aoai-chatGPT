@@ -35,8 +35,6 @@ from backend.utils import (
     format_pf_non_streaming_response,
 )
 
-from backend.filter_compiler import build_odata_filter_from_query
-
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
 
 

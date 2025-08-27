@@ -92,20 +92,23 @@ def format_non_streaming_response(chatCompletion, history_metadata, apim_request
             if hasattr(message, "context"):
                 ctx = message.context or {}
                 try:
-                    f = (history_metadata or {}).get("search", {}).get("odata_filter")
-                    if f:
-                        ctx = {**ctx, "search": {**ctx.get("search", {}), "odata_filter": f}}
+                    search_meta = (history_metadata or {}).get("search", {}) or {}
+                    search_ctx = ctx.get("search", {}) or {}
+
+                    for k in ("odata_filter", "odata_filter_docs", "odata_filter_employees", "employee_ids"):
+                        v = search_meta.get(k)
+                        if v:
+                            search_ctx[k] = v
+
+                    if search_ctx:
+                        ctx["search"] = search_ctx
                 except Exception:
                     pass
+
                 response_obj["choices"][0]["messages"].append(
                     {"role": "tool", "content": json.dumps(ctx)}
                 )
-            response_obj["choices"][0]["messages"].append(
-                {
-                    "role": "assistant",
-                    "content": message.content,
-                }
-            )
+
             return response_obj
 
     return {}
@@ -127,14 +130,24 @@ def format_stream_response(chatCompletionChunk, history_metadata, apim_request_i
             if hasattr(delta, "context"):
                 ctx = delta.context or {}
                 try:
-                    f = (history_metadata or {}).get("search", {}).get("odata_filter")
-                    if f:
-                        ctx = {**ctx, "search": {**ctx.get("search", {}), "odata_filter": f}}
+                    search_meta = (history_metadata or {}).get("search", {}) or {}
+                    search_ctx = ctx.get("search", {}) or {}
+
+                    for k in ("odata_filter", "odata_filter_docs", "odata_filter_employees", "employee_ids"):
+                        v = search_meta.get(k)
+                        if v:
+                            search_ctx[k] = v
+
+                    if search_ctx:
+                        ctx["search"] = search_ctx
                 except Exception:
                     pass
-                messageObj = {"role": "tool", "content": json.dumps(ctx)}
-                response_obj["choices"][0]["messages"].append(messageObj)
+
+                response_obj["choices"][0]["messages"].append(
+                    {"role": "tool", "content": json.dumps(ctx)}
+                )
                 return response_obj
+
             if delta.role == "assistant" and hasattr(delta, "context"):
                 messageObj = {
                     "role": "assistant",
