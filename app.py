@@ -94,19 +94,15 @@ if DEBUG.lower() == "true":
 
 USER_AGENT = "GitHubSampleWebApp/AsyncAzureOpenAI/1.0.0"
 
-# Hard-code for now; later make env-driven (AZURE_SEARCH_EMPLOYEES_INDEX)
-EMPLOYEES_INDEX_NAME = os.environ.get("AZURE_SEARCH_EMPLOYEES_INDEX", "employees-v1")
+
+EMPLOYEES_INDEX_NAME = "employees-v1"  # whatever yours is
 
 async def _search_employee_ids(filter_str: str, top: int = 50) -> list[str]:
-    """
-    Query the employees index for employee_id values matching filter_str.
-    Uses the same service/key as your primary search datasource.
-    """
     if not app_settings.datasource or not hasattr(app_settings.datasource, "endpoint"):
         logging.warning("No Azure Search datasource configured; skipping employee prefilter.")
         return []
 
-    endpoint = app_settings.datasource.endpoint  # e.g., https://<service>.search.windows.net
+    endpoint = app_settings.datasource.endpoint.rstrip("/")
     api_key = getattr(app_settings.datasource, "key", None)
     if not api_key:
         logging.warning("Azure Search API key not present in settings; employee prefilter requires an API key.")
@@ -120,16 +116,19 @@ async def _search_employee_ids(filter_str: str, top: int = 50) -> list[str]:
     if filter_str:
         params["$filter"] = filter_str
 
-    url = f"{endpoint}/indexes/{EMPLOYEES_INDEX_NAME}/docs?{urlencode(params, safe='(),\' ')}"
-
     headers = {
         "api-key": api_key,
         "Content-Type": "application/json",
-        "Accept": "application/json"
+        "Accept": "application/json",
     }
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(
+                f"{endpoint}/indexes/{EMPLOYEES_INDEX_NAME}/docs",
+                headers=headers,
+                params=params,  # ← let httpx handle encoding
+            )
             if resp.status_code != 200:
                 logging.warning("Employees search error %s: %s", resp.status_code, resp.text)
                 return []
