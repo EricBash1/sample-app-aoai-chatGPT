@@ -105,7 +105,7 @@ def constraints_to_odata_for_docs_index(js: Dict, employee_ids: Optional[List[st
     """
     Build an OData $filter for the **documents** index (your andy-* index).
     This index now has top-level fields (client, states, tags, proposal_date, etc.) and
-    a **collection** field 'employees_ids' (Collection(Edm.String)) when present.
+    a **collection** field 'employee_ids' (Collection(Edm.String)) when present.
     """
     clauses: List[str] = []
 
@@ -130,12 +130,12 @@ def constraints_to_odata_for_docs_index(js: Dict, employee_ids: Optional[List[st
         tags_any = _or_join([f"t eq {_q(v)}" for v in tags_vals])
         clauses.append(f"(tags/any(t: {tags_any}))")
 
-    # --- employees_ids (Collection(Edm.String)) ---
+    # --- employee_ids (Collection(Edm.String)) ---
     if employee_ids:
         # Use search.in for a compact 'IN' style clause
         id_csv = ",".join(sorted({str(x) for x in employee_ids if str(x).strip()}))
         if id_csv:
-            clauses.append(f"(employees_ids/any(id: search.in(id, '{id_csv}', ',')))")
+            clauses.append(f"(employee_ids/any(id: search.in(id, '{id_csv}', ',')))")
 
     return _and_join(clauses)
 
