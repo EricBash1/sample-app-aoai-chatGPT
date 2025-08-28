@@ -331,19 +331,22 @@ class _AzureSearchSettings(BaseSettings, DatasourcePayloadConstructor):
         if request and self.permitted_groups_column:
             acl_filter = self._set_filter_string(request)
 
-        # combine filters if both present
-        combined = None
-        if acl_filter and nl_filter:
-            combined = f"({acl_filter}) and ({nl_filter})"
-        else:
-            combined = nl_filter or acl_filter
+        # Combine per-request filters, but DO NOT mutate self
+        combined = (
+            f"({acl_filter}) and ({nl_filter})" if (acl_filter and nl_filter)
+            else (nl_filter or acl_filter)
+        )
 
-        if combined:
-            self.filter = combined
-
+        # Build parameters from the static config
         self.embedding_dependency = self._settings.azure_openai.extract_embedding_dependency()
         parameters = self.model_dump(exclude_none=True, by_alias=True)
-        parameters.update(self._settings.search.model_dump(exclude_none=True, by_alias=True))
+
+        # IMPORTANT: remove any stale filter coming from previous calls
+        parameters.pop("filter", None)
+
+        # Only inject filter for this request if we actually have one
+        if combined:
+            parameters["filter"] = combined
 
         return {
             "type": self._type,
@@ -550,35 +553,6 @@ class _PineconeSettings(BaseSettings, DatasourcePayloadConstructor):
         }
         return self
     
-def construct_payload_configuration(self, *args, **kwargs):
-    request = kwargs.pop('request', None)
-    nl_filter: Optional[str] = kwargs.pop('nl_filter', None)
-
-    acl_filter = None
-    if request and self.permitted_groups_column:
-        acl_filter = self._set_filter_string(request)
-
-    # Combine per-request filters, but DO NOT mutate self
-    combined = (
-        f"({acl_filter}) and ({nl_filter})" if (acl_filter and nl_filter)
-        else (nl_filter or acl_filter)
-    )
-
-    # Build parameters from the static config
-    self.embedding_dependency = self._settings.azure_openai.extract_embedding_dependency()
-    parameters = self.model_dump(exclude_none=True, by_alias=True)
-
-    # IMPORTANT: remove any stale filter coming from previous calls
-    parameters.pop("filter", None)
-
-    # Only inject filter for this request if we actually have one
-    if combined:
-        parameters["filter"] = combined
-
-    return {
-        "type": self._type,
-        "parameters": parameters
-    }
 
 
 class _AzureMLIndexSettings(BaseSettings, DatasourcePayloadConstructor):
