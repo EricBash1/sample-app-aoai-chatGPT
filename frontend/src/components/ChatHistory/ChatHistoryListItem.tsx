@@ -105,6 +105,7 @@ export const ChatHistoryListItemCell: React.FC<ChatHistoryListItemCellProps> = (
       }, 5000)
     } else {
       appStateContext?.dispatch({ type: 'DELETE_CHAT_ENTRY', payload: item.id })
+      navigate(`/`)
     }
     toggleDeleteDialog()
   }

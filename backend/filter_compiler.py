@@ -47,7 +47,7 @@ def is_employee_intent(constraints: Optional[dict]) -> bool:
     if not constraints:
         return False
     e = constraints.get("employees") or {}
-    if any(bool(_as_list(e.get(k))) for k in ("names", "job_roles", "states", "status")):
+    if any(bool(_as_list(e.get(k))) for k in ("names", "job_roles", "states")):
         return True
     if any(isinstance(e.get(k), (int, float)) for k in ("min_years_experience", "max_years_experience")):
         return True
@@ -66,7 +66,7 @@ def constraints_to_odata_for_employees_index(js: Dict) -> Optional[str]:
 
     names = _as_list(emp.get("names"))
     if names:
-        names_any = _or_join([f"name eq {_q(n)}" for n in names])
+        names_any = _or_join([f"full_name eq {_q(n)}" for n in names])
         emp_clauses.append(f"({names_any})")
 
     job_roles = _as_list(emp.get("job_roles"))

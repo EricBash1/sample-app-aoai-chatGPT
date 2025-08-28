@@ -25,6 +25,7 @@ import { AppStateContext } from '../../state/AppProvider'
 import ChatHistoryList from './ChatHistoryList'
 
 import styles from './ChatHistoryPanel.module.css'
+import { useNavigate } from 'react-router-dom'
 
 interface ChatHistoryPanelProps {}
 
@@ -49,6 +50,7 @@ export function ChatHistoryPanel(_props: ChatHistoryPanelProps) {
   const [hideClearAllDialog, { toggle: toggleClearAllDialog }] = useBoolean(true)
   const [clearing, setClearing] = React.useState(false)
   const [clearingError, setClearingError] = React.useState(false)
+  const navigate = useNavigate(); 
 
   const clearAllDialogContentProps = {
     type: DialogType.close,
@@ -88,6 +90,7 @@ export function ChatHistoryPanel(_props: ChatHistoryPanelProps) {
       setClearingError(true)
     } else {
       appStateContext?.dispatch({ type: 'DELETE_CHAT_HISTORY' })
+      navigate(`/`)
       toggleClearAllDialog()
     }
     setClearing(false)

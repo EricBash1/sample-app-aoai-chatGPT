@@ -1,11 +1,9 @@
 @echo off
 
-set PYTHON_EXE=C:\Python311\python.exe
-
 echo.
 echo Restoring backend python packages
 echo.
-call "%PYTHON_EXE%" -m pip install -r requirements.txt
+call python -m pip install -r requirements.txt
 if "%errorlevel%" neq "0" (
     echo Failed to restore backend python packages
     exit /B %errorlevel%
@@ -31,12 +29,12 @@ if "%errorlevel%" neq "0" (
 )
 
 echo.    
-echo Starting backend    
+echo Starting backend
 echo.    
 cd ..  
 start http://127.0.0.1:50505
-call "%PYTHON_EXE%" -m uvicorn app:app --port 50505 --reload
+call python -m uvicorn app:app  --port 50505 --reload
 if "%errorlevel%" neq "0" (    
     echo Failed to start backend    
     exit /B %errorlevel%    
-)
+) 

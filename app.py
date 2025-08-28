@@ -103,7 +103,7 @@ async def _search_employees(
     """
     One Azure Search call -> returns (employee_ids, employees_meta).
     We'll request up to max(top_ids, top_meta) docs, then slice locally.
-    Assumes fields: employee_id,name,job_roles,state,status,years_experience,bio
+    Assumes fields: employee_id,full_name,job_roles,state,years_experience,bio
     """
     if not app_settings.datasource or not hasattr(app_settings.datasource, "endpoint"):
         return [], []
@@ -116,7 +116,7 @@ async def _search_employees(
     take = max(int(top_ids), int(top_meta))
     params = {
         "api-version": "2023-11-01",
-        "$select": "employee_id,name,job_roles,state,status,years_experience,bio",
+        "$select": "employee_id,full_name,job_roles,state,years_experience,bio",
         "$top": str(take),
     }
     if filter_str:
@@ -147,10 +147,9 @@ async def _search_employees(
         for v in rows[:top_meta]:
             meta.append({
                 "employee_id": str(v.get("employee_id") or ""),
-                "name": v.get("name") or "",
+                "full_name": v.get("full_name") or "",
                 "job_roles": v.get("job_roles") or [],
                 "state": v.get("state") or "",
-                "status": v.get("status") or "",
                 "years_experience": int(v.get("years_experience") or 0),
                 "bio": (v.get("bio") or "").strip(),
             })
@@ -474,7 +473,7 @@ async def send_chat_request(request_body, request_headers):
     # Stage A: optional employee pre-filter
     employees_filter = None
     employee_ids: list[str] = []
-    employees_meta: list[dict] = []   # ← init up front
+    employees_meta: list[dict] = [] 
 
     if constraints and is_employee_intent(constraints):
         try:
@@ -499,10 +498,9 @@ async def send_chat_request(request_body, request_headers):
                         roles = ", ".join(e.get("job_roles") or [])
                         bio = (e.get("bio") or "")[:MAX_BIOS_CHARS]
                         lines.append(
-                            f"- {e.get('name','')} (ID {e.get('employee_id','')}) — {roles or '—'}; "
+                            f"- {e.get('full_name','')} (ID {e.get('employee_id','')}) — {roles or '—'}; "
                             f"State: {e.get('state','') or '—'}; "
                             f"Years: {e.get('years_experience',0)}; "
-                            f"Status: {e.get('status','') or '—'}"
                             + (f"\n  Bio: {bio}" if bio else "")
                         )
                     roster = "\n".join(lines)
@@ -525,6 +523,7 @@ async def send_chat_request(request_body, request_headers):
             logging.debug("Docs index $filter: %s", doc_filter)
     except Exception as e:
         logging.warning("Docs filter conversion failed: %s", e)
+        
 
     # Debug context to frontend console
     hm = request_body.get("history_metadata") or {}
@@ -534,27 +533,12 @@ async def send_chat_request(request_body, request_headers):
         "odata_filter_employees": employees_filter,
         "employee_ids": employee_ids,
         "employees_meta_count": len(employees_meta),
-        # Optional: a tiny preview of names for quick sanity-check in console
-        "employees_meta_names": [m.get("name") for m in employees_meta[:10]],
+        "employees_meta_names": [m.get("full_name") for m in employees_meta[:10]],
     }
     request_body["history_metadata"] = hm
 
-    # Prepare model args; optionally add tiny broad source when we have employees
+    # Prepare model args;
     model_args = prepare_model_args(request_body, request_headers, nl_filter=doc_filter)
-    try:
-        if employees_meta and "extra_body" in model_args:
-            ds_list = model_args["extra_body"].get("data_sources", [])
-            if ds_list:
-                ds_broad = copy.deepcopy(ds_list[0])
-                ds_broad["parameters"].pop("filter", None)
-                ds_broad["parameters"]["strictness"] = 1
-                ds_broad["parameters"]["top_n_documents"] = min(
-                    3, int(ds_broad["parameters"].get("top_n_documents", 5))
-                )
-                ds_list.append(ds_broad)
-                model_args["extra_body"]["data_sources"] = ds_list
-    except Exception as e:
-        logging.warning("Could not add broad data source: %s", e)
 
     # Chat call
     try:
