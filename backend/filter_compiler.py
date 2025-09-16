@@ -53,12 +53,7 @@ def is_employee_intent(constraints: Optional[dict]) -> bool:
         return True
     return False
 
-
 def constraints_to_odata_for_employees_index(js: Dict) -> Optional[str]:
-    """
-    Build an OData $filter for the **employees** index (flat fields).
-    Expect fields: employee_id (key), name, job_roles (collection), state, status, years_experience (int).
-    """
     clauses: List[str] = []
 
     emp: Dict = js.get("employees") or {}
@@ -92,11 +87,11 @@ def constraints_to_odata_for_employees_index(js: Dict) -> Optional[str]:
     if isinstance(max_y, (int, float)):
         emp_clauses.append(f"(years_experience le {int(max_y)})")
 
+    # ✅ Force “Active” for all employee searches
+    emp_clauses.append("(status eq 'Active')")
+
     if emp_clauses:
         clauses.append(_and_join(emp_clauses))
-
-    # Optionally narrow by top-level states/tags/client if you mirror those on the employees index
-    # (most teams don't). Nothing added here by default.
 
     return _and_join(clauses)
 
