@@ -147,10 +147,13 @@ const Chat = () => {
 
         const employees = search?.odata_filter_employees;
         const ids = search?.employee_ids;
+        const fallback_to_unfiltered = search?.fallback_to_unfiltered;
+
 
         if (docs)       console.log('[Docs OData]', docs);
         if (employees)  console.log('[Employees OData]', employees);
         if (ids)        console.log('[Employee IDs]', ids);
+        if (fallback_to_unfiltered)        console.warn('[Azure Search] Filter produced 0 results; retried UNFILTERED.');
     } catch {
         // ignore JSON parse errors for partial chunks
     }

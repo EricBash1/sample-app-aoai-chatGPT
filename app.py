@@ -525,6 +525,19 @@ async def send_chat_request(request_body, request_headers):
         logging.warning("Docs filter conversion failed: %s", e)
         
 
+    fallback_to_unfiltered = False
+    try:
+        if doc_filter:
+            estimated = await _docs_count(doc_filter)
+            if estimated == 0:
+                logging.info("No docs with current filter; falling back to unfiltered search.")
+                doc_filter = None
+                fallback_to_unfiltered = True
+    except Exception as e:
+        logging.warning("Docs preflight failed (skipping fallback): %s", e)
+
+
+
     # Debug context to frontend console
     hm = request_body.get("history_metadata") or {}
     hm["search"] = {
@@ -534,6 +547,7 @@ async def send_chat_request(request_body, request_headers):
         "employee_ids": employee_ids,
         "employees_meta_count": len(employees_meta),
         "employees_meta_names": [m.get("full_name") for m in employees_meta[:10]],
+        "fallback_to_unfiltered": fallback_to_unfiltered,
     }
     request_body["history_metadata"] = hm
 
@@ -598,6 +612,45 @@ async def conversation_internal(request_body, request_headers):
             return jsonify({"error": str(ex)}), ex.status_code
         else:
             return jsonify({"error": str(ex)}), 500
+
+async def _docs_count(filter_str: str) -> int:
+    """
+    Returns estimated count for the docs index using the given OData filter.
+    If something goes wrong, returns -1 (so we won't accidentally force fallback).
+    """
+    ds = getattr(app_settings, "datasource", None)
+    if not ds or not getattr(ds, "endpoint", None) or not getattr(ds, "index", None):
+        return -1
+
+    endpoint = ds.endpoint.rstrip("/")
+    index = ds.index
+    api_key = getattr(ds, "key", None)
+    if not api_key:
+        return -1
+
+    url = f"{endpoint}/indexes/{index}/docs/search?api-version=2023-11-01"
+    body = {"search": "*", "count": True, "top": 0}
+    if filter_str:
+        body["filter"] = filter_str
+
+    headers = {
+        "api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, headers=headers, json=body)
+        if resp.status_code != 200:
+            logging.warning("Docs count check failed %s: %s", resp.status_code, resp.text)
+            return -1
+        data = resp.json() or {}
+        # Azure Search returns "@odata.count" in this API
+        return int(data.get("@odata.count") or 0)
+    except Exception as e:
+        logging.warning("Docs count check exception: %s", e)
+        return -1
 
 
 @bp.route("/conversation", methods=["POST"])
