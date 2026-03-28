@@ -592,10 +592,12 @@ const Chat = () => {
     }
 
     const onViewSource = (citation: Citation) => {
-        if (citation.url) {
-            window.open(citation.url, '_blank')
-        }
+    if (citation.url) {
+        const sasToken = '?sp=r&st=2024-07-30T21:44:21Z&se=2124-07-31T05:44:21Z&spr=https&sv=2022-11-02&sr=c&sig=mKcyQtb%2FyTRYdLc%2BIOkwoxqMEpsrZCeXrynOkZQkpJ8%3D'
+        const url = citation.url.includes('?sp=r') ? citation.url : citation.url + sasToken
+        window.open(url, '_blank')
     }
+}
 
     const parseCitationsFromMessage = (message: ChatMessage) => {
         if (message?.role && message?.role === 'tool') {
