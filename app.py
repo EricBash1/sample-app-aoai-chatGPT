@@ -1,4 +1,3 @@
-import copy
 import json
 import os
 import logging
@@ -31,6 +30,7 @@ from backend.utils import (
     format_as_ndjson,
     format_stream_response,
     format_non_streaming_response,
+    format_context_message,
     convert_to_pf_format,
     format_pf_non_streaming_response,
 )
@@ -162,6 +162,139 @@ async def _search_employees(
     except Exception as e:
         logging.warning("Employees search call failed: %s", e)
         return [], []
+
+
+# --- Docs retrieval + grounding (replaces Azure OpenAI On Your Data, retired 2026-10-14) ---
+
+# On Your Data's default role. AZURE_OPENAI_SYSTEM_MESSAGE was not being sent to it,
+# so keep this to preserve the answers users are used to.
+OYD_ROLE_INFORMATION = "You are an AI assistant that helps people find information."
+OYD_NOT_IN_DATA_RESPONSE = (
+    "The requested information is not available in the retrieved data. "
+    "Please try another query or topic."
+)
+
+# Approximates On Your Data's `strictness` (1-5) as a minimum semantic reranker score (0-4)
+STRICTNESS_MIN_RERANKER_SCORE = {1: 0.0, 2: 0.5, 3: 1.0, 4: 1.5, 5: 2.0}
+SEARCH_API_VERSION = "2024-07-01"
+
+
+async def _search_auth_headers(ds) -> dict:
+    api_key = getattr(ds, "key", None)
+    if api_key:
+        return {"api-key": api_key}
+    # No key: use the web app's managed identity (needs "Search Index Data Reader" on the search service)
+    async with DefaultAzureCredential() as credential:
+        token = await credential.get_token("https://search.azure.com/.default")
+    return {"Authorization": f"Bearer {token.token}"}
+
+
+async def _search_docs(search_query: str, filter_str: str | None) -> list[dict]:
+    """
+    Retrieves grounding chunks from the docs index using the same AZURE_SEARCH_* settings
+    On Your Data used. Returns citations in On Your Data's shape (content, title, url, filepath, chunk_id).
+    """
+    ds = getattr(app_settings, "datasource", None)
+    if not ds or not getattr(ds, "endpoint", None) or not getattr(ds, "index", None):
+        return []
+
+    query_type = ds.query_type or "simple"
+    use_vector = query_type.startswith("vector") and bool(ds.vector_columns)
+    use_semantic = query_type in ("semantic", "vector_semantic_hybrid")
+    top_k = ds.top_k
+
+    content_fields = ds.content_columns or []
+    select = {*content_fields, ds.title_column, ds.url_column, ds.filename_column} - {None}
+
+    body = {
+        # extra candidates so the strictness cut can drop weak ones and still fill top_k
+        "top": top_k * 4 if use_semantic else top_k,
+    }
+    if select:
+        body["select"] = ",".join(sorted(select))
+    if query_type != "vector":
+        body["search"] = search_query
+    if filter_str:
+        body["filter"] = filter_str
+    if use_vector:
+        # "text" kind uses the index's own vectorizer to embed the query
+        body["vectorQueries"] = [{
+            "kind": "text",
+            "text": search_query,
+            "fields": ",".join(ds.vector_columns),
+            "k": 50,
+        }]
+    if use_semantic:
+        body["queryType"] = "semantic"
+        if ds.semantic_search_config:
+            body["semanticConfiguration"] = ds.semantic_search_config
+
+    try:
+        headers = await _search_auth_headers(ds)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{ds.endpoint.rstrip('/')}/indexes/{ds.index}/docs/search",
+                params={"api-version": SEARCH_API_VERSION},
+                headers={**headers, "Content-Type": "application/json", "Accept": "application/json"},
+                json=body,
+            )
+        if resp.status_code != 200:
+            logging.error("Docs search error %s: %s", resp.status_code, resp.text)
+            return []
+        rows = (resp.json() or {}).get("value", []) or []
+    except Exception as e:
+        logging.error("Docs search call failed: %s", e)
+        return []
+
+    if use_semantic:
+        min_score = STRICTNESS_MIN_RERANKER_SCORE.get(ds.strictness, 1.0)
+        rows = [r for r in rows if (r.get("@search.rerankerScore") or 0) >= min_score]
+
+    citations = []
+    for r in rows[:top_k]:
+        citations.append({
+            "content": "\n".join(str(r.get(f) or "") for f in content_fields).strip(),
+            "title": r.get(ds.title_column) if ds.title_column else None,
+            "url": r.get(ds.url_column) if ds.url_column else None,
+            "filepath": r.get(ds.filename_column) if ds.filename_column else None,
+            "chunk_id": "0",
+        })
+    return citations
+
+
+def _build_grounded_system_message(citations: list[dict]) -> str:
+    ds = app_settings.datasource
+    rules = [
+        "- Cite the documents you use by putting their reference, such as [doc1], directly after the "
+        "statement it supports. Cite several as [doc1][doc2]. Only use the references listed below, "
+        "and do not add a separate list of references.",
+    ]
+    if getattr(ds, "enable_in_domain", True):
+        rules.append(
+            "- Answer only from the retrieved documents and any other context given in system messages. "
+            "Do not use outside knowledge. If they do not contain the answer, reply exactly: "
+            f"\"{OYD_NOT_IN_DATA_RESPONSE}\""
+        )
+    else:
+        rules.append(
+            "- Prefer the retrieved documents. If they do not contain the answer, you may answer from "
+            "general knowledge."
+        )
+
+    if citations:
+        docs = "\n\n".join(
+            f"[doc{i}]\nTitle: {c.get('title') or ''}\nContent: {c.get('content') or ''}"
+            for i, c in enumerate(citations, start=1)
+        )
+    else:
+        docs = "No documents were retrieved."
+
+    return (
+        f"{OYD_ROLE_INFORMATION}\n\n"
+        "You answer using the retrieved documents below.\n"
+        + "\n".join(rules)
+        + f"\n\n## Retrieved documents\n\n{docs}"
+    )
 
 # Frontend Settings via Environment Variables
 frontend_settings = {
@@ -302,16 +435,18 @@ def init_cosmosdb_logging_client():
     return cosmos_logging_client
 
 
-def prepare_model_args(request_body, request_headers, nl_filter: str | None = None):
+def prepare_model_args(request_body, request_headers, citations: list[dict] | None = None):
     request_messages = request_body.get("messages", [])
-    messages = []
-    if not app_settings.datasource:
-        messages = [
-            {
-                "role": "system",
-                "content": app_settings.azure_openai.system_message
-            }
-        ]
+    if app_settings.datasource:
+        system_message = _build_grounded_system_message(citations or [])
+    else:
+        system_message = app_settings.azure_openai.system_message
+    messages = [
+        {
+            "role": "system",
+            "content": system_message
+        }
+    ]
 
     for message in request_messages:
         if message:
@@ -339,67 +474,7 @@ def prepare_model_args(request_body, request_headers, nl_filter: str | None = No
         "user": user_json
     }
 
-    if app_settings.datasource:
-        model_args["extra_body"] = {
-            "data_sources": [
-                app_settings.datasource.construct_payload_configuration(
-                    request=request,
-                    nl_filter=nl_filter,
-                )
-            ]
-        }
-
-    try:
-        ds_params = (
-            model_args.get("extra_body", {})
-            .get("data_sources", [{}])[0]
-            .get("parameters", {})
-        )
-        outgoing_filter = ds_params.get("filter")
-        history_md = request_body.get("history_metadata") or {}
-        if outgoing_filter:
-            dbg = history_md.get("search") or {}
-            dbg["odata_filter"] = outgoing_filter
-            history_md["search"] = dbg
-            request_body["history_metadata"] = history_md
-    except Exception:
-        pass
-
-    model_args_clean = copy.deepcopy(model_args)
-    if model_args_clean.get("extra_body"):
-        secret_params = [
-            "key",
-            "connection_string",
-            "embedding_key",
-            "encoded_api_key",
-            "api_key",
-        ]
-        for secret_param in secret_params:
-            if model_args_clean["extra_body"]["data_sources"][0]["parameters"].get(
-                secret_param
-            ):
-                model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                    secret_param
-                ] = "*****"
-        authentication = model_args_clean["extra_body"]["data_sources"][0][
-            "parameters"
-        ].get("authentication", {})
-        for field in authentication:
-            if field in secret_params:
-                model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                    "authentication"
-                ][field] = "*****"
-        embeddingDependency = model_args_clean["extra_body"]["data_sources"][0][
-            "parameters"
-        ].get("embedding_dependency", {})
-        if "authentication" in embeddingDependency:
-            for field in embeddingDependency["authentication"]:
-                if field in secret_params:
-                    model_args_clean["extra_body"]["data_sources"][0]["parameters"][
-                        "embedding_dependency"
-                    ]["authentication"][field] = "*****"
-
-    logging.debug(f"REQUEST BODY: {json.dumps(model_args_clean, indent=4)}")
+    logging.debug(f"REQUEST BODY: {json.dumps(model_args, indent=4)}")
 
     return model_args
 
@@ -448,11 +523,15 @@ async def send_chat_request(request_body, request_headers):
 
     azure_openai_client = init_openai_client()
 
-    # latest user text
+    # latest user text, and the conversation before it (for follow-up query rewriting)
     user_text = ""
-    for m in reversed(request_body.get("messages", [])):
+    history: list[dict] = []
+    request_messages = request_body.get("messages", [])
+    for i in range(len(request_messages) - 1, -1, -1):
+        m = request_messages[i]
         if m.get("role") == "user" and isinstance(m.get("content"), str):
             user_text = m["content"]
+            history = request_messages[:i]
             break
 
     # LLM → constraints JSON (shared across both stages)
@@ -465,7 +544,7 @@ async def send_chat_request(request_body, request_headers):
 
     constraints = None
     try:
-        constraints = await extract_constraints(user_text, azure_openai_client)
+        constraints = await extract_constraints(user_text, azure_openai_client, history)
         logging.debug("NL constraints: %s", json.dumps(constraints or {}, ensure_ascii=False))
     except Exception as e:
         logging.warning("Skipping NL constraints due to error: %s", e)
@@ -551,8 +630,22 @@ async def send_chat_request(request_body, request_headers):
     }
     request_body["history_metadata"] = hm
 
+    # Docs retrieval (what On Your Data used to do inside the chat call)
+    context = None
+    citations: list[dict] = []
+    if app_settings.datasource:
+        search_query = ((constraints or {}).get("search_query") or "").strip() or user_text
+        logging.debug("Docs search query: %s", search_query)
+        citations = await _search_docs(search_query, doc_filter)
+        # Same shape as On Your Data's message.context; "intent" is a JSON-encoded list of search queries
+        context = {
+            "citations": citations,
+            "intent": json.dumps([search_query]),
+            "search": hm["search"],
+        }
+
     # Prepare model args;
-    model_args = prepare_model_args(request_body, request_headers, nl_filter=doc_filter)
+    model_args = prepare_model_args(request_body, request_headers, citations=citations)
 
     # Chat call
     try:
@@ -563,7 +656,7 @@ async def send_chat_request(request_body, request_headers):
         logging.exception("Exception in send_chat_request")
         raise e
 
-    return response, apim_request_id
+    return response, apim_request_id, context
 
 
 
@@ -578,16 +671,20 @@ async def complete_chat_request(request_body, request_headers):
             app_settings.promptflow.citations_field_name
         )
     else:
-        response, apim_request_id = await send_chat_request(request_body, request_headers)
+        response, apim_request_id, context = await send_chat_request(request_body, request_headers)
         history_metadata = request_body.get("history_metadata", {})
-        return format_non_streaming_response(response, history_metadata, apim_request_id)
+        return format_non_streaming_response(response, history_metadata, apim_request_id, context)
 
 
 async def stream_chat_request(request_body, request_headers):
-    response, apim_request_id = await send_chat_request(request_body, request_headers)
+    response, apim_request_id, context = await send_chat_request(request_body, request_headers)
     history_metadata = request_body.get("history_metadata", {})
-    
+
     async def generate():
+        if context is not None:
+            yield format_context_message(
+                context, history_metadata, apim_request_id, app_settings.azure_openai.model
+            )
         async for completionChunk in response:
             yield format_stream_response(completionChunk, history_metadata, apim_request_id)
 

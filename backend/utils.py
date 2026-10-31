@@ -3,6 +3,8 @@ import json
 import logging
 import requests
 import dataclasses
+import time
+import uuid
 
 from typing import List
 
@@ -75,7 +77,23 @@ def generateFilterString(userToken):
     return f"{AZURE_SEARCH_PERMITTED_GROUPS_COLUMN}/any(g:search.in(g, '{group_ids}'))"
 
 
-def format_non_streaming_response(chatCompletion, history_metadata, apim_request_id):
+def format_context_message(context, history_metadata, apim_request_id, model):
+    """
+    Wraps the backend's retrieval context (citations, intent, search debug info) as the
+    tool message the frontend expects. On Your Data used to send this as message.context.
+    """
+    return {
+        "id": str(uuid.uuid4()),
+        "model": model,
+        "created": int(time.time()),
+        "object": "chat.completion.chunk",
+        "choices": [{"messages": [{"role": "tool", "content": json.dumps(context)}]}],
+        "history_metadata": history_metadata,
+        "apim-request-id": apim_request_id,
+    }
+
+
+def format_non_streaming_response(chatCompletion, history_metadata, apim_request_id, context=None):
     response_obj = {
         "id": chatCompletion.id,
         "model": chatCompletion.model,
@@ -89,22 +107,13 @@ def format_non_streaming_response(chatCompletion, history_metadata, apim_request
     if len(chatCompletion.choices) > 0:
         message = chatCompletion.choices[0].message
         if message:
-            if hasattr(message, "context"):
-                ctx = message.context or {}
-                try:
-                    search_meta = (history_metadata or {}).get("search", {}) or {}
-                    search_ctx = ctx.get("search", {}) or {}
-
-                    # just merge whatever the backend put there
-                    if search_meta:
-                        search_ctx.update(search_meta)
-                        ctx["search"] = search_ctx
-                except Exception:
-                    pass
-
+            if context is not None:
                 response_obj["choices"][0]["messages"].append(
-                    {"role": "tool", "content": json.dumps(ctx)}
+                    {"role": "tool", "content": json.dumps(context)}
                 )
+            response_obj["choices"][0]["messages"].append(
+                {"role": "assistant", "content": message.content}
+            )
 
             return response_obj
 

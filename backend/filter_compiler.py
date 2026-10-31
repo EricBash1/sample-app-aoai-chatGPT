@@ -1,6 +1,7 @@
 # backend/filter_compiler.py
 import json
 import logging
+import re
 from typing import Dict, List, Optional, Tuple
 
 from openai import AsyncAzureOpenAI
@@ -35,11 +36,16 @@ async def build_odata_filter_from_query(
 async def extract_constraints(
     query_text: str,
     aoai_client: AsyncAzureOpenAI,
+    history: Optional[List[dict]] = None,
 ) -> Optional[dict]:
-    """Exported helper: get normalized constraints JSON from the LLM."""
+    """
+    Exported helper: get normalized constraints JSON from the LLM.
+    Also returns "search_query": the latest message rewritten as a standalone search query
+    using `history` (prior user/assistant messages) to resolve follow-up references.
+    """
     if not isinstance(query_text, str) or not query_text.strip():
         return None
-    return await _extract_constraints_with_llm(query_text, aoai_client)
+    return await _extract_constraints_with_llm(query_text, aoai_client, history)
 
 
 def is_employee_intent(constraints: Optional[dict]) -> bool:
@@ -131,10 +137,28 @@ def constraints_to_odata_for_docs_index(js: Dict, employee_ids: Optional[List[st
 
 # ---------- LLM extraction (internal) ----------
 
+HISTORY_MAX_MESSAGES = 6
+HISTORY_MAX_CHARS_PER_MESSAGE = 500
+
+
+def _format_history(history: Optional[List[dict]]) -> str:
+    lines: List[str] = []
+    for m in (history or [])[-HISTORY_MAX_MESSAGES:]:
+        content = m.get("content")
+        if m.get("role") in ("user", "assistant") and isinstance(content, str) and content.strip():
+            # drop citation markers like [doc1]; they mean nothing outside the original answer
+            text = re.sub(r"\[doc\d+\]", "", content).strip()[:HISTORY_MAX_CHARS_PER_MESSAGE]
+            lines.append(f"{m['role']}: {text}")
+    return "\n".join(lines)
+
+
 async def _extract_constraints_with_llm(
     query_text: str,
     aoai_client: AsyncAzureOpenAI,
+    history: Optional[List[dict]] = None,
 ) -> Optional[dict]:
+    history_text = _format_history(history)
+    history_block = f"\nConversation so far (for search_query only):\n{history_text}\n" if history_text else ""
     system = (
         "You convert natural-language search requests into structured filter constraints "
         "for an Azure Cognitive Search index. Emit STRICT JSON only, no commentary."
@@ -154,14 +178,18 @@ Extract constraints for this index. Output a SINGLE JSON object with this shape:
      "min_years_experience": null | 0,
      "max_years_experience": null | 40
   }},
-  "client_hints": [] | ["City of Canton", "Canton City"]
+  "client_hints": [] | ["City of Canton", "Canton City"],
+  "search_query": "standalone search query"
 }}
 
 Guidance:
 - Normalize states to 2-letter codes when possible.
 - If a value is not clearly stated, LEAVE ARRAYS EMPTY and set min/max to null. Do not hallucinate.
+- Extract all constraints from the Query only, never from the conversation so far.
+- search_query: rewrite the Query as a standalone search query, using the conversation so far only to resolve
+  references such as "those", "that client" or "what about Ohio". If the Query already stands alone, copy it unchanged.
 - Do not include any keys other than the ones above.
-
+{history_block}
 Query: {query_text}
 """
     try:
